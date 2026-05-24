@@ -1,0 +1,23 @@
+---
+alwaysApply: true
+---
+
+Always read MASTER_CONTEXT.md before making implementation or architecture decisions.
+
+Preserve project architecture.
+
+Avoid spaghetti code.
+
+Prefer scalable modular systems.
+
+Do not create giant files.
+
+Always analyze before coding.
+
+Always create implementation plan first.
+
+Never duplicate logic.
+
+Preserve strict TypeScript typing.
+
+Think about scalability and maintainability first.
