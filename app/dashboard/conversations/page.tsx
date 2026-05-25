@@ -96,6 +96,42 @@ export default function ConversationsPage() {
 
   }
 
+  function getClassificationColor(
+    classification: string
+  ) {
+
+    if (
+      classification ===
+      "meeting_request"
+    ) {
+      return "bg-green-500/20 text-green-400";
+    }
+
+    if (
+      classification ===
+      "pricing_request"
+    ) {
+      return "bg-yellow-500/20 text-yellow-400";
+    }
+
+    if (
+      classification ===
+      "interested"
+    ) {
+      return "bg-blue-500/20 text-blue-400";
+    }
+
+    if (
+      classification ===
+      "objection"
+    ) {
+      return "bg-red-500/20 text-red-400";
+    }
+
+    return "bg-zinc-800 text-zinc-400";
+
+  }
+
   return (
 
     <div className="flex h-screen bg-black text-white">
@@ -144,7 +180,27 @@ export default function ConversationsPage() {
                     }`}
                   >
 
-                    {msg.message}
+                    <div>
+                      {msg.message}
+                    </div>
+
+                    {msg.classification && (
+
+                      <div className="mt-4">
+
+                        <span
+                          className={`rounded-full px-3 py-1 text-sm ${getClassificationColor(
+                            msg.classification
+                          )}`}
+                        >
+
+                          {msg.classification}
+
+                        </span>
+
+                      </div>
+
+                    )}
 
                   </div>
 

@@ -1,15 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-type Message = {
-  role: string;
-  content: string;
-};
+export default function LeadWorkspacePage() {
 
-export default function ConversationPage() {
+  const [lead, setLead] =
+    useState<any>(null);
+
   const [messages, setMessages] =
-    useState<Message[]>([]);
+    useState<any[]>([]);
 
   const [input, setInput] =
     useState("");
@@ -17,28 +16,97 @@ export default function ConversationPage() {
   const [loading, setLoading] =
     useState(false);
 
+  async function loadLead() {
+
+    try {
+
+      const res = await fetch(
+        "/api/leads"
+      );
+
+      const data =
+        await res.json();
+
+      console.log(data);
+
+      if (
+        data.leads &&
+        data.leads.length > 0
+      ) {
+
+        setLead(
+          data.leads[0]
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
+
+  }
+
+  async function loadMessages() {
+
+    try {
+
+      const res = await fetch(
+        "/api/messages?leadId=8741d6e7-d508-461a-a147-f32f7aef6b0d"
+      );
+
+      const data =
+        await res.json();
+
+      console.log(data);
+
+      if (data.messages) {
+
+        setMessages(
+          data.messages
+        );
+
+      }
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
+
+  }
+
+  useEffect(() => {
+
+    async function init() {
+
+      await loadLead();
+
+      await loadMessages();
+
+    }
+
+    init();
+
+  }, []);
+
   async function sendMessage() {
+
+    if (!input.trim()) {
+      return;
+    }
+
     const currentInput =
-      input.trim();
-
-    if (!currentInput) return;
-
-    const userMessage = {
-      role: "user",
-      content: currentInput,
-    };
-
-    setMessages((prev) => [
-      ...prev,
-      userMessage,
-    ]);
+      input;
 
     setInput("");
 
     setLoading(true);
 
     try {
-      const response = await fetch(
+
+      await fetch(
         "/api/chat",
         {
           method: "POST",
@@ -49,116 +117,244 @@ export default function ConversationPage() {
           },
 
           body: JSON.stringify({
-            message: currentInput,
+
+            message:
+              currentInput,
 
             leadId:
-              "d19d37db-2dd3-48f1-9985-b91ec37a2bda",
+              "8741d6e7-d508-461a-a147-f32f7aef6b0d",
+
           }),
         }
       );
 
-      const data =
-        await response.json();
+      await loadMessages();
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            data.reply ||
-            "No response",
-        },
-      ]);
     } catch (error) {
+
       console.error(error);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content:
-            "AVERON AI failed to respond.",
-        },
-      ]);
     }
 
     setLoading(false);
+
+  }
+
+  if (!lead) {
+
+    return (
+
+      <div className="flex h-screen items-center justify-center bg-black text-5xl text-white">
+
+        Loading...
+
+      </div>
+
+    );
+
   }
 
   return (
-    <div className="h-screen bg-black text-white flex flex-col">
-      {/* HEADER */}
 
-      <div className="h-[80px] border-b border-zinc-900 flex items-center px-8">
+    <div className="flex h-screen bg-black text-white">
+
+      {/* SIDEBAR */}
+
+      <div className="w-[420px] border-r border-zinc-900 bg-zinc-950 p-8">
+
         <h1 className="text-4xl font-bold">
-          AVERON AI
+
+          Lead Intelligence
+
         </h1>
+
+        <div className="mt-10 space-y-6">
+
+          <div className="rounded-3xl border border-zinc-800 bg-black p-6">
+
+            <div className="text-zinc-500">
+              Lead
+            </div>
+
+            <div className="mt-2 text-2xl font-bold">
+
+              {lead.name}
+
+            </div>
+
+            <div className="mt-2 text-zinc-400">
+
+              {lead.email}
+
+            </div>
+
+          </div>
+
+          <div className="rounded-3xl border border-zinc-800 bg-black p-6">
+
+            <div className="text-zinc-500">
+              Pipeline Status
+            </div>
+
+            <div className="mt-2 text-2xl font-semibold capitalize">
+
+              {lead.status || "new"}
+
+            </div>
+
+          </div>
+
+          <div className="rounded-3xl border border-zinc-800 bg-black p-6">
+
+            <div className="text-zinc-500">
+              Intent Score
+            </div>
+
+            <div className="mt-2 text-5xl font-bold">
+
+              {lead.intent_score || 0}
+
+            </div>
+
+          </div>
+
+          <div className="rounded-3xl border border-zinc-800 bg-black p-6">
+
+            <div className="text-zinc-500">
+              AI Notes
+            </div>
+
+            <div className="mt-4 whitespace-pre-wrap text-zinc-300">
+
+              {lead.ai_notes ||
+                "No AI notes yet"}
+
+            </div>
+
+          </div>
+
+        </div>
+
       </div>
 
       {/* CHAT */}
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-6">
-        {messages.map(
-          (message, index) => (
-            <div
-              key={index}
-              className={`flex ${
-                message.role ===
-                "assistant"
-                  ? "justify-end"
-                  : "justify-start"
-              }`}
-            >
-              <div
-                className={`max-w-[700px] rounded-3xl px-6 py-5 text-lg leading-relaxed ${
-                  message.role ===
-                  "assistant"
-                    ? "bg-white text-black"
-                    : "bg-zinc-900"
-                }`}
-              >
-                {message.content}
+      <div className="flex flex-1 flex-col">
+
+        <div className="border-b border-zinc-900 px-10 py-6">
+
+          <h1 className="text-4xl font-bold">
+
+            AI Revenue Workspace
+
+          </h1>
+
+          <p className="mt-2 text-zinc-500">
+
+            Autonomous sales intelligence
+
+          </p>
+
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-10 py-8">
+
+          <div className="mx-auto max-w-4xl space-y-6">
+
+            {messages.map(
+              (msg, index) => (
+
+                <div
+                  key={index}
+                  className={`flex ${
+                    msg.role ===
+                    "user"
+                      ? "justify-end"
+                      : "justify-start"
+                  }`}
+                >
+
+                  <div
+                    className={`max-w-[70%] rounded-3xl px-6 py-5 text-lg ${
+                      msg.role ===
+                      "user"
+                        ? "bg-white text-black"
+                        : "border border-zinc-800 bg-zinc-950"
+                    }`}
+                  >
+
+                    {msg.message}
+
+                  </div>
+
+                </div>
+
+              )
+            )}
+
+            {loading && (
+
+              <div className="text-zinc-500">
+
+                AVERON AI thinking...
+
               </div>
-            </div>
-          )
-        )}
 
-        {loading && (
-          <div className="text-zinc-500">
-            AVERON AI is thinking...
+            )}
+
           </div>
-        )}
+
+        </div>
+
+        {/* INPUT */}
+
+        <div className="border-t border-zinc-900 px-10 py-6">
+
+          <div className="mx-auto flex max-w-4xl gap-4">
+
+            <input
+              value={input}
+              onChange={(e) =>
+                setInput(
+                  e.target.value
+                )
+              }
+              onKeyDown={(e) => {
+
+                if (
+                  e.key ===
+                  "Enter"
+                ) {
+
+                  sendMessage();
+
+                }
+
+              }}
+              placeholder="Ask AVERON AI..."
+              className="h-[64px] flex-1 rounded-3xl border border-zinc-800 bg-zinc-950 px-6 text-lg outline-none"
+            />
+
+            <button
+              onClick={
+                sendMessage
+              }
+              disabled={loading}
+              className="h-[64px] rounded-3xl bg-white px-8 text-lg font-semibold text-black"
+            >
+
+              Send
+
+            </button>
+
+          </div>
+
+        </div>
+
       </div>
 
-      {/* INPUT */}
-
-      <div className="border-t border-zinc-900 p-6 flex gap-4">
-        <input
-          value={input}
-          onChange={(e) =>
-            setInput(
-              e.target.value
-            )
-          }
-          onKeyDown={(e) => {
-            if (
-              e.key === "Enter"
-            ) {
-              sendMessage();
-            }
-          }}
-          placeholder="Type message..."
-          className="flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl px-6 py-4 outline-none text-lg"
-        />
-
-        <button
-          onClick={sendMessage}
-          disabled={loading}
-          className="bg-white text-black px-8 py-4 rounded-2xl font-semibold"
-        >
-          Send
-        </button>
-      </div>
     </div>
+
   );
+
 }

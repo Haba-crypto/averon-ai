@@ -1,13 +1,22 @@
-import { NextResponse } from "next/server";
-
 import OpenAI from "openai";
 
-import { supabaseServer } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
 
-const openai = new OpenAI({
-  apiKey:
-    process.env.OPENAI_API_KEY,
-});
+import { createClient } from "@supabase/supabase-js";
+
+const openai =
+  new OpenAI({
+    apiKey:
+      process.env.OPENAI_API_KEY,
+  });
+
+const supabase =
+  createClient(
+    process.env
+      .NEXT_PUBLIC_SUPABASE_URL!,
+    process.env
+      .SUPABASE_SERVICE_ROLE_KEY!
+  );
 
 export async function POST(
   req: Request
@@ -21,134 +30,59 @@ export async function POST(
     const {
       message,
       leadId,
-      organizationId,
     } = body;
 
-    if (!message) {
+    /* LOAD LEAD */
 
-      return NextResponse.json(
-        {
-          error:
-            "Message required",
-        },
-        {
-          status: 400,
-        }
-      );
+    const {
+      data: lead,
+    } = await supabase
+      .from("leads")
+      .select("*")
+      .eq(
+        "id",
+        leadId
+      )
+      .single();
 
-    }
+    /* SAVE USER MESSAGE */
+
+    await supabase
+      .from("conversations")
+      .insert({
+
+        lead_id:
+          leadId,
+
+        role:
+          "user",
+
+        message,
+
+      });
 
     const lower =
       message.toLowerCase();
 
-    /* MEMORY */
+    /* MULTI AGENT */
 
-    let memorySummary = "";
-
-    let recentMessages = "";
-
-    if (leadId) {
-
-      const { data: memory } =
-        await supabaseServer
-          .from("lead_memory")
-          .select("*")
-          .eq("lead_id", leadId)
-          .single();
-
-      if (memory) {
-
-        memorySummary =
-          memory.summary || "";
-
-      }
-
-      const {
-        data: previousMessages,
-      } = await supabaseServer
-        .from("conversations")
-        .select("*")
-        .eq("lead_id", leadId)
-        .order("created_at", {
-          ascending: false,
-        })
-        .limit(10);
-
-      if (previousMessages) {
-
-        recentMessages =
-          previousMessages
-
-            .reverse()
-
-            .map(
-              (msg) =>
-                `${msg.role}: ${msg.message}`
-            )
-
-            .join("\n");
-
-      }
-
-    }
-
-    /* SAVE USER MESSAGE */
-
-    if (leadId) {
-
-      await supabaseServer
-        .from("conversations")
-        .insert({
-
-          lead_id:
-            leadId,
-
-          organization_id:
-            organizationId,
-
-          role:
-            "user",
-
-          message,
-
-        });
-
-    }
-
-    /* MULTI AGENT SYSTEM */
-
-    const activeAgents = [];
+    let activeAgent =
+      "SDR Agent";
 
     if (
-      lower.includes(
-        "integration"
-      ) ||
-      lower.includes(
-        "api"
-      )
-    ) {
-
-      activeAgents.push(
-        "Solutions Agent"
-      );
-
-    }
-
-    if (
-      lower.includes(
-        "enterprise"
-      ) ||
       lower.includes(
         "pricing"
       ) ||
       lower.includes(
-        "proposal"
+        "contract"
+      ) ||
+      lower.includes(
+        "close"
       )
     ) {
 
-      activeAgents.push(
-        "Closer Agent"
-      );
+      activeAgent =
+        "Closer Agent";
 
     }
 
@@ -160,317 +94,562 @@ export async function POST(
         "company"
       ) ||
       lower.includes(
-        "competitor"
+        "market"
       )
     ) {
 
-      activeAgents.push(
-        "Research Agent"
-      );
+      activeAgent =
+        "Research Agent";
 
     }
 
     if (
-      activeAgents.length === 0
+      lower.includes(
+        "support"
+      ) ||
+      lower.includes(
+        "onboarding"
+      ) ||
+      lower.includes(
+        "retention"
+      )
     ) {
 
-      activeAgents.push(
-        "SDR Agent"
-      );
+      activeAgent =
+        "Customer Success Agent";
 
     }
 
-    /* AI EVENTS */
-
-    if (leadId) {
-
-      for (
-        const agent
-        of activeAgents
-      ) {
-
-        await supabaseServer
-          .from("agent_events")
-          .insert({
-
-            lead_id:
-              leadId,
-
-            organization_id:
-              organizationId,
-
-            agent_name:
-              agent,
-
-            event:
-              `${agent} activated`,
-
-          });
-
-      }
-
-    }
-
-    /* OPENAI */
+    /* AI RESPONSE */
 
     const completion =
-      await openai.chat.completions.create(
-        {
-          model:
-            "gpt-4.1-mini",
+      await openai.chat.completions.create({
 
-          messages: [
-            {
-              role: "system",
+        model:
+          "gpt-4.1-mini",
 
-              content: `
+        messages: [
+
+          {
+            role:
+              "system",
+
+            content: `
+
 You are AVERON AI.
 
-You are an autonomous AI-native revenue operating system.
+You are an elite autonomous AI revenue operating system.
 
-ACTIVE AGENTS:
-${activeAgents.join(", ")}
+Current active agent:
+${activeAgent}
 
-LEAD MEMORY:
-${memorySummary}
-
-RECENT CONVERSATION:
-${recentMessages}
-
-Responsibilities:
+Your goals:
 - qualify leads
-- orchestrate sales workflows
-- automate pipeline movement
-- assist enterprise revenue teams
-- coordinate multi-agent execution
-- prioritize opportunities
-- personalize responses
-- remain concise
+- detect buying intent
+- move deals forward
+- identify urgency
+- identify blockers
+- recommend next actions
+- act like elite revenue operators
+
+Lead:
+
+Name: ${lead?.name}
+
+Company: ${lead?.company}
+
+Status: ${lead?.status}
+
+Intent score:
+${lead?.intent_score}
+
+Urgency:
+${lead?.urgency}
+
+Deal risk:
+${lead?.deal_risk}
+
+Recommendation:
+${lead?.recommendation}
+
+AI notes:
+${lead?.ai_notes}
+
 `,
-            },
+          },
 
-            {
-              role: "user",
+          {
+            role:
+              "user",
 
-              content:
-                message,
-            },
-          ],
-        }
-      );
+            content:
+              message,
+          },
 
-    const aiReply =
-      completion.choices[0]
+        ],
+
+      });
+
+    const reply =
+      completion
+        .choices?.[0]
         ?.message?.content ||
       "No response";
 
-    /* SAVE AI RESPONSE */
+    /* SAVE AI MESSAGE */
 
-    if (leadId) {
+    await supabase
+      .from("conversations")
+      .insert({
 
-      await supabaseServer
-        .from("conversations")
+        lead_id:
+          leadId,
+
+        role:
+          "assistant",
+
+        message:
+          reply,
+
+      });
+
+    /* AI EVENT LOGGER */
+
+    async function logEvent(
+      type: string,
+      message: string
+    ) {
+
+      await supabase
+        .from("ai_events")
         .insert({
 
           lead_id:
             leadId,
 
-          organization_id:
-            organizationId,
+          type,
 
-          role:
-            "assistant",
-
-          message:
-            aiReply,
+          message,
 
         });
 
     }
 
-    /* PIPELINE */
+    /* AI INTELLIGENCE */
 
-    let intentScore = 40;
+    let intentScore =
+      lead?.intent_score || 0;
 
-    let leadStatus =
-      "new";
+    let status =
+      lead?.status || "new";
+
+    let aiNotes =
+      lead?.ai_notes || "";
+
+    let urgency =
+      lead?.urgency || "low";
+
+    let recommendation =
+      lead?.recommendation ||
+      "Continue qualification.";
+
+    let dealRisk =
+      lead?.deal_risk || "low";
+
+    let closeProbability =
+      lead?.close_probability || 10;
+
+    const actions = [];
+
+    /* BUYING INTENT */
+
+    if (
+      lower.includes(
+        "demo"
+      ) ||
+      lower.includes(
+        "pricing"
+      ) ||
+      lower.includes(
+        "integration"
+      )
+    ) {
+
+      intentScore += 15;
+
+      closeProbability +=
+        12;
+
+      urgency =
+        "high";
+
+      status =
+        "qualified";
+
+      recommendation =
+        "Schedule enterprise demo immediately.";
+
+      aiNotes +=
+        "\nDetected high buying intent.";
+
+      actions.push({
+
+        type:
+          "intent",
+
+        message:
+          "Detected high buying intent",
+
+      });
+
+      await logEvent(
+        "intent",
+        "Detected high buying intent"
+      );
+
+      actions.push({
+
+        type:
+          "pipeline",
+
+        message:
+          "Pipeline moved to qualified",
+
+      });
+
+      await logEvent(
+        "pipeline",
+        "Pipeline moved to qualified"
+      );
+
+      await supabase
+        .from("tasks")
+        .insert({
+
+          lead_id:
+            leadId,
+
+          title:
+            "High-intent follow-up",
+
+          description:
+            "Lead requested demo/pricing/integration discussion.",
+
+          priority:
+            "high",
+
+        });
+
+      actions.push({
+
+        type:
+          "task",
+
+        message:
+          "Created high-intent follow-up task",
+
+      });
+
+      await logEvent(
+        "task",
+        "Created high-intent follow-up task"
+      );
+
+    }
+
+    /* ENTERPRISE */
 
     if (
       lower.includes(
         "enterprise"
       ) ||
       lower.includes(
-        "pricing"
+        "team"
       ) ||
       lower.includes(
-        "demo"
+        "scale"
       )
     ) {
 
-      intentScore = 85;
+      intentScore += 10;
 
-      leadStatus =
-        "qualified";
+      closeProbability +=
+        8;
 
-    }
+      urgency =
+        "medium";
 
-    if (
-      lower.includes(
-        "proposal"
-      )
-    ) {
+      recommendation =
+        "Push enterprise expansion conversation.";
 
-      leadStatus =
-        "proposal";
+      aiNotes +=
+        "\nEnterprise expansion potential detected.";
 
-    }
+      actions.push({
 
-    if (
-      lower.includes(
-        "contract"
-      )
-    ) {
+        type:
+          "enterprise",
 
-      leadStatus =
-        "closing";
-
-    }
-
-    /* TASK GENERATION */
-
-    const generatedTasks = [];
-
-    for (
-      const agent
-      of activeAgents
-    ) {
-
-      generatedTasks.push({
-
-        lead_id:
-          leadId,
-
-        organization_id:
-          organizationId,
-
-        assigned_agent:
-          agent,
-
-        task:
-          `${agent} workflow execution`,
-
-        status:
-          "pending",
-
-        priority:
-          intentScore >= 80
-            ? "high"
-            : "medium",
+        message:
+          "Enterprise expansion potential detected",
 
       });
 
+      await logEvent(
+        "enterprise",
+        "Enterprise expansion potential detected"
+      );
+
     }
+
+    /* RISK */
 
     if (
-      generatedTasks.length > 0
+      lower.includes(
+        "later"
+      ) ||
+      lower.includes(
+        "not now"
+      ) ||
+      lower.includes(
+        "budget"
+      )
     ) {
 
-      await supabaseServer
-        .from("tasks")
-        .insert(
-          generatedTasks
-        );
+      dealRisk =
+        "medium";
+
+      closeProbability -=
+        10;
+
+      recommendation =
+        "Address timing and budget objections.";
+
+      actions.push({
+
+        type:
+          "risk",
+
+        message:
+          "Potential deal risk detected",
+
+      });
+
+      await logEvent(
+        "risk",
+        "Potential deal risk detected"
+      );
 
     }
 
-    /* MEMORY UPDATE */
+    /* RESEARCH */
 
-    const aiNotes = `
-Agents:
-${activeAgents.join(", ")}
+    if (
+      activeAgent ===
+      "Research Agent"
+    ) {
 
-Intent:
-${intentScore}
+      aiNotes +=
+        "\nResearch agent activated.";
 
-Pipeline:
-${leadStatus}
+      actions.push({
 
-Recent Message:
-${message}
-`;
+        type:
+          "research",
 
-    if (leadId) {
+        message:
+          "Research agent analyzing company intelligence",
 
-      await supabaseServer
-        .from("lead_memory")
-        .upsert({
+      });
 
-          lead_id:
-            leadId,
-
-          organization_id:
-            organizationId,
-
-          summary:
-            aiNotes,
-
-          intent_score:
-            intentScore,
-
-          last_message:
-            message,
-
-          updated_at:
-            new Date().toISOString(),
-
-        });
-
-      await supabaseServer
-        .from("leads")
-        .update({
-
-          status:
-            leadStatus,
-
-          intent_score:
-            intentScore,
-
-          ai_notes:
-            aiNotes,
-
-        })
-        .eq(
-          "id",
-          leadId
-        );
+      await logEvent(
+        "research",
+        "Research agent analyzing company intelligence"
+      );
 
     }
 
-    return NextResponse.json({
+    /* CUSTOMER SUCCESS */
 
-      reply:
-        aiReply,
+    if (
+      activeAgent ===
+      "Customer Success Agent"
+    ) {
 
-      activeAgents,
+      recommendation =
+        "Focus on onboarding and retention strategy.";
 
-      intentScore,
+      actions.push({
 
-      leadStatus,
+        type:
+          "cs",
+
+        message:
+          "Customer Success workflow activated",
+
+      });
+
+      await logEvent(
+        "cs",
+        "Customer Success workflow activated"
+      );
+
+    }
+
+    /* NORMALIZE */
+
+    closeProbability =
+      Math.max(
+        5,
+        Math.min(
+          closeProbability,
+          95
+        )
+      );
+
+    /* UPDATE LEAD */
+
+    await supabase
+      .from("leads")
+      .update({
+
+        intent_score:
+          intentScore,
+
+        status,
+
+        ai_notes:
+          aiNotes,
+
+        urgency,
+
+        recommendation,
+
+        deal_risk:
+          dealRisk,
+
+        close_probability:
+          closeProbability,
+
+      })
+      .eq(
+        "id",
+        leadId
+      );
+
+    /* UPDATED LEAD */
+
+    const {
+      data: updatedLead,
+    } = await supabase
+      .from("leads")
+      .select("*")
+      .eq(
+        "id",
+        leadId
+      )
+      .single();
+
+    /* FINAL EVENTS */
+
+    actions.push({
+
+      type:
+        "memory",
+
+      message:
+        "AI memory updated",
 
     });
 
-  } catch (error: any) {
-
-    console.error(
-      "CHAT API ERROR:",
-      error
+    await logEvent(
+      "memory",
+      "AI memory updated"
     );
+
+    actions.push({
+
+      type:
+        "agent",
+
+      message:
+        `${activeAgent} active`,
+
+    });
+
+    await logEvent(
+      "agent",
+      `${activeAgent} active`
+    );
+
+    actions.push({
+
+      type:
+        "urgency",
+
+      message:
+        `Urgency level: ${urgency}`,
+
+    });
+
+    await logEvent(
+      "urgency",
+      `Urgency level: ${urgency}`
+    );
+
+    actions.push({
+
+      type:
+        "probability",
+
+      message:
+        `Close probability: ${closeProbability}%`,
+
+    });
+
+    await logEvent(
+      "probability",
+      `Close probability: ${closeProbability}%`
+    );
+
+    actions.push({
+
+      type:
+        "recommendation",
+
+      message:
+        recommendation,
+
+    });
+
+    await logEvent(
+      "recommendation",
+      recommendation
+    );
+
+    return NextResponse.json({
+
+      success: true,
+
+      reply,
+
+      activeAgent,
+
+      lead:
+        updatedLead,
+
+      actions,
+
+    });
+
+  } catch (error) {
+
+    console.error(error);
 
     return NextResponse.json(
       {
         error:
-          error?.message ||
-          "Something went wrong",
+          "AI failed",
       },
       {
         status: 500,

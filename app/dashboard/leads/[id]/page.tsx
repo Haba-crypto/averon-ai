@@ -5,147 +5,339 @@ import {
   useState,
 } from "react";
 
-import { useParams } from "next/navigation";
-
-import { supabase } from "@/lib/supabase/client";
+import {
+  useParams,
+} from "next/navigation";
 
 type Lead = {
   id: string;
   name: string;
   email: string;
-  company: string;
+  company?: string;
   status: string;
   intent_score: number;
-  ai_notes: string;
+  ai_notes?: string;
+  urgency?: string;
+  deal_risk?: string;
+  recommendation?: string;
+  close_probability?: number;
 };
 
-type Conversation = {
-  id: string;
+type Message = {
   role: string;
+  message: string;
+};
+
+type AIAction = {
+  type: string;
+  message: string;
+};
+
+type AIEvent = {
+  id: string;
+  type: string;
   message: string;
   created_at: string;
 };
 
-type Task = {
-  id: string;
-  task: string;
-  status: string;
-  priority: string;
-  assigned_agent: string;
-};
+export default function LeadPage() {
 
-export default function LeadDetailsPage() {
+  const params =
+    useParams();
 
-  const params = useParams();
-
-  const id = params.id as string;
+  const leadId =
+    params.id as string;
 
   const [lead, setLead] =
-    useState<Lead | null>(null);
-
-  const [conversations, setConversations] =
-    useState<Conversation[]>([]);
-
-  const [tasks, setTasks] =
-    useState<Task[]>([]);
-
-  async function loadLead() {
-
-    const { data: leadData } =
-      await supabase
-        .from("leads")
-        .select("*")
-        .eq("id", id)
-        .single();
-
-    setLead(leadData);
-
-    const {
-      data: conversationData,
-    } = await supabase
-      .from("conversations")
-      .select("*")
-      .eq("lead_id", id)
-      .order("created_at", {
-        ascending: true,
-      });
-
-    setConversations(
-      conversationData || []
+    useState<Lead | null>(
+      null
     );
 
-    const { data: tasksData } =
-      await supabase
-        .from("tasks")
-        .select("*")
-        .eq("lead_id", id)
-        .order("created_at", {
-          ascending: false,
-        });
+  const [messages, setMessages] =
+    useState<Message[]>(
+      []
+    );
 
-    setTasks(tasksData || []);
+  const [actions, setActions] =
+    useState<AIAction[]>(
+      []
+    );
 
-  }
+  const [events, setEvents] =
+    useState<AIEvent[]>(
+      []
+    );
+
+  const [activeAgent, setActiveAgent] =
+    useState("SDR Agent");
+
+  const [thinkingStage, setThinkingStage] =
+    useState("");
+
+  const [input, setInput] =
+    useState("");
+
+  const [sending, setSending] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
 
   useEffect(() => {
 
-    if (!id) return;
+    async function loadData() {
 
-    loadLead();
+      try {
 
-    const channel =
-      supabase
-        .channel(
-          `lead-${id}`
-        )
+        /* LOAD LEADS */
 
-        .on(
-          "postgres_changes",
+        const leadRes =
+          await fetch(
+            "/api/leads"
+          );
 
-          {
-            event: "*",
-            schema: "public",
-            table: "conversations",
-          },
+        const leadData =
+          await leadRes.json();
 
-          () => {
-            loadLead();
-          }
-        )
+        const foundLead =
+          leadData.leads?.find(
+            (item: Lead) =>
+              item.id ===
+              leadId
+          );
 
-        .on(
-          "postgres_changes",
+        setLead(
+          foundLead || null
+        );
 
-          {
-            event: "*",
-            schema: "public",
-            table: "tasks",
-          },
+        /* LOAD MESSAGES */
 
-          () => {
-            loadLead();
-          }
-        )
+        const msgRes =
+          await fetch(
+            `/api/messages?leadId=${leadId}`
+          );
 
-        .subscribe();
+        const msgData =
+          await msgRes.json();
 
-    return () => {
+        setMessages(
+          msgData.messages ||
+            []
+        );
 
-      supabase.removeChannel(
-        channel
+        /* LOAD EVENTS */
+
+        const eventRes =
+          await fetch(
+            `/api/ai-events?leadId=${leadId}`
+          );
+
+        const eventData =
+          await eventRes.json();
+
+        setEvents(
+          eventData.events ||
+            []
+        );
+
+      } catch (error) {
+
+        console.error(error);
+
+      }
+
+      setLoading(false);
+
+    }
+
+    if (leadId) {
+
+      loadData();
+
+    }
+
+  }, [leadId]);
+
+  async function refreshEvents() {
+
+    try {
+
+      const eventRes =
+        await fetch(
+          `/api/ai-events?leadId=${leadId}`
+        );
+
+      const eventData =
+        await eventRes.json();
+
+      setEvents(
+        eventData.events ||
+          []
       );
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
+
+  }
+
+  async function sendMessage() {
+
+    if (!input.trim()) {
+      return;
+    }
+
+    const userMessage = {
+
+      role: "user",
+
+      message: input,
 
     };
 
-  }, [id]);
+    setMessages((prev) => [
+      ...prev,
+      userMessage,
+    ]);
+
+    const currentInput =
+      input;
+
+    setInput("");
+
+    setSending(true);
+
+    /* THINKING STAGES */
+
+    setThinkingStage(
+      "Research Agent analyzing company..."
+    );
+
+    setTimeout(() => {
+
+      setThinkingStage(
+        "Closer Agent evaluating urgency..."
+      );
+
+    }, 1200);
+
+    setTimeout(() => {
+
+      setThinkingStage(
+        "AVERON generating strategy..."
+      );
+
+    }, 2400);
+
+    try {
+
+      const response =
+        await fetch(
+          "/api/chat",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              leadId,
+              message:
+                currentInput,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (data.reply) {
+
+        setMessages((prev) => [
+
+          ...prev,
+
+          {
+            role:
+              "assistant",
+
+            message:
+              data.reply,
+          },
+
+        ]);
+
+      }
+
+      if (data.actions) {
+
+        setActions((prev) => [
+
+          ...data.actions,
+
+          ...prev,
+
+        ]);
+
+      }
+
+      if (data.lead) {
+
+        setLead(
+          data.lead
+        );
+
+      }
+
+      if (data.activeAgent) {
+
+        setActiveAgent(
+          data.activeAgent
+        );
+
+      }
+
+      /* REFRESH EVENTS */
+
+      await refreshEvents();
+
+    } catch (error) {
+
+      console.error(error);
+
+    }
+
+    setThinkingStage("");
+
+    setSending(false);
+
+  }
+
+  if (loading) {
+
+    return (
+
+      <div className="flex h-screen items-center justify-center bg-[#050505] text-zinc-500">
+
+        Loading workspace...
+
+      </div>
+
+    );
+
+  }
 
   if (!lead) {
 
     return (
 
-      <div className="min-h-screen bg-black text-white flex items-center justify-center text-4xl">
+      <div className="flex h-screen items-center justify-center bg-[#050505] text-red-500">
 
-        Loading...
+        Lead not found
 
       </div>
 
@@ -155,164 +347,156 @@ export default function LeadDetailsPage() {
 
   return (
 
-    <div className="min-h-screen bg-black text-white p-10">
+    <div className="flex h-screen overflow-hidden bg-[#050505] text-white">
 
-      <div className="max-w-7xl mx-auto">
+      {/* LEFT SIDEBAR */}
 
-        {/* HEADER */}
+      <div className="w-[340px] overflow-y-auto border-r border-white/10 bg-black/30 backdrop-blur-xl">
 
-        <div className="flex items-start justify-between">
+        <div className="p-8">
 
-          <div>
+          <div className="mb-3 text-xs uppercase tracking-[0.3em] text-zinc-500">
 
-            <h1 className="text-7xl font-bold">
-              {lead.name}
-            </h1>
-
-            <p className="text-zinc-500 text-2xl mt-4">
-
-              {lead.company || "No company"}
-
-            </p>
-
-            <p className="text-zinc-600 text-xl mt-2">
-
-              {lead.email}
-
-            </p>
+            Lead Intelligence
 
           </div>
 
-          <div className="rounded-3xl bg-emerald-500/10 border border-emerald-500/20 px-10 py-8">
+          <h1 className="text-5xl font-semibold tracking-[-0.06em]">
 
-            <div className="text-zinc-500">
+            {lead.name}
+
+          </h1>
+
+          <div className="mt-4 text-zinc-500">
+
+            {lead.email}
+
+          </div>
+
+        </div>
+
+        <div className="space-y-5 px-6 pb-6">
+
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
+
+            <div className="text-sm text-zinc-500">
+
               Intent Score
-            </div>
-
-            <div className="text-7xl font-bold text-emerald-400 mt-3">
-
-              {lead.intent_score || 0}%
 
             </div>
 
-          </div>
+            <div className="mt-3 text-5xl font-bold">
 
-        </div>
-
-        {/* STATS */}
-
-        <div className="grid grid-cols-4 gap-6 mt-14">
-
-          <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
-
-            <div className="text-zinc-500">
-              Status
-            </div>
-
-            <div className="text-4xl font-bold mt-4">
-
-              {lead.status || "new"}
+              {lead.intent_score}
 
             </div>
 
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
 
-            <div className="text-zinc-500">
-              Conversations
-            </div>
+            <div className="text-sm text-zinc-500">
 
-            <div className="text-4xl font-bold mt-4">
-
-              {conversations.length}
+              Pipeline Status
 
             </div>
 
-          </div>
+            <div className="mt-3 text-lg font-medium text-[#00ffcc]">
 
-          <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
-
-            <div className="text-zinc-500">
-              Active Tasks
-            </div>
-
-            <div className="text-4xl font-bold mt-4">
-
-              {tasks.length}
+              {lead.status}
 
             </div>
 
           </div>
 
-          <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
 
-            <div className="text-zinc-500">
-              AI Confidence
+            <div className="mb-5 text-xs uppercase tracking-[0.25em] text-zinc-500">
+
+              AI Memory
+
             </div>
 
-            <div className="text-4xl font-bold mt-4 text-emerald-400">
+            <div className="space-y-5 text-sm leading-7 text-zinc-300">
 
-              98%
+              <div>
+
+                <div className="mb-1 text-zinc-500">
+
+                  Company
+
+                </div>
+
+                <div className="text-white">
+
+                  {lead.company ||
+                    "Unknown"}
+
+                </div>
+
+              </div>
+
+              <div>
+
+                <div className="mb-1 text-zinc-500">
+
+                  AI Notes
+
+                </div>
+
+                <div>
+
+                  {lead.ai_notes ||
+                    "No AI notes yet."}
+
+                </div>
+
+              </div>
 
             </div>
 
           </div>
 
-        </div>
+          {/* LIVE ACTIONS */}
 
-        {/* MAIN GRID */}
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
 
-        <div className="grid grid-cols-[1.4fr_0.6fr] gap-8 mt-14">
+            <div className="mb-5 text-xs uppercase tracking-[0.25em] text-zinc-500">
 
-          {/* CONVERSATIONS */}
+              Live AI Actions
 
-          <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
+            </div>
 
-            <h2 className="text-5xl font-bold">
-              Conversations
-            </h2>
+            <div className="space-y-4">
 
-            <div className="mt-10 space-y-6">
+              {actions.length ===
+              0 ? (
 
-              {conversations.length === 0 ? (
+                <div className="text-sm text-zinc-500">
 
-                <div className="text-zinc-500 text-xl">
-
-                  No conversations yet
+                  No AI actions yet.
 
                 </div>
 
               ) : (
 
-                conversations.map((msg) => (
-
-                  <div
-                    key={msg.id}
-                    className={`flex ${
-                      msg.role ===
-                      "assistant"
-                        ? "justify-end"
-                        : "justify-start"
-                    }`}
-                  >
+                actions.map(
+                  (
+                    action,
+                    index
+                  ) => (
 
                     <div
-                      className={`max-w-[700px] rounded-3xl px-6 py-5 text-lg ${
-                        msg.role ===
-                        "assistant"
-                          ? "bg-white text-black rounded-br-md"
-                          : "bg-black border border-white/10 rounded-bl-md"
-                      }`}
+                      key={index}
+                      className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm text-zinc-300"
                     >
 
-                      {msg.message}
+                      {action.message}
 
                     </div>
 
-                  </div>
-
-                ))
+                  )
+                )
 
               )}
 
@@ -320,89 +504,293 @@ export default function LeadDetailsPage() {
 
           </div>
 
-          {/* RIGHT PANEL */}
+        </div>
 
-          <div className="space-y-8">
+      </div>
 
-            {/* AI NOTES */}
+      {/* CENTER */}
 
-            <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
+      <div className="flex flex-1 flex-col">
 
-              <h2 className="text-4xl font-bold">
-                AI Insights
-              </h2>
+        {/* HEADER */}
 
-              <div className="mt-8 whitespace-pre-wrap text-zinc-300 leading-relaxed">
+        <div className="flex items-center justify-between border-b border-white/10 px-10 py-7">
 
-                {lead.ai_notes ||
-                  "No AI insights yet"}
+          <div>
 
-              </div>
+            <div className="mb-2 text-xs uppercase tracking-[0.3em] text-zinc-500">
+
+              AVERON AI Workspace
 
             </div>
 
-            {/* TASKS */}
+            <h1 className="text-4xl font-semibold tracking-[-0.05em]">
 
-            <div className="rounded-3xl border border-white/10 bg-zinc-950 p-8">
+              Conversation Intelligence
 
-              <h2 className="text-4xl font-bold">
-                Tasks
-              </h2>
+            </h1>
 
-              <div className="mt-8 space-y-5">
+          </div>
 
-                {tasks.length === 0 ? (
+          <div className="rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-5 py-3 text-sm font-medium text-[#00ffcc]">
 
-                  <div className="text-zinc-500">
+            {activeAgent}
 
-                    No active tasks
+          </div>
+
+        </div>
+
+        {/* CHAT */}
+
+        <div className="flex-1 overflow-y-auto px-10 py-10">
+
+          <div className="mx-auto flex max-w-5xl flex-col gap-6">
+
+            {messages.map(
+              (
+                message,
+                index
+              ) => (
+
+                <div
+                  key={index}
+                  className={`flex ${
+                    message.role ===
+                    "assistant"
+                      ? "justify-start"
+                      : "justify-end"
+                  }`}
+                >
+
+                  <div
+                    className={`max-w-[760px] rounded-[30px] px-7 py-5 text-[15px] leading-8 ${
+                      message.role ===
+                      "assistant"
+                        ? "border border-white/10 bg-white/[0.03]"
+                        : "bg-white text-black"
+                    }`}
+                  >
+
+                    {message.message}
 
                   </div>
 
-                ) : (
+                </div>
 
-                  tasks.map((task) => (
+              )
+            )}
+
+            {sending && (
+
+              <div className="flex justify-start">
+
+                <div className="rounded-[30px] border border-white/10 bg-white/[0.03] px-7 py-5 text-zinc-400">
+
+                  {thinkingStage}
+
+                </div>
+
+              </div>
+
+            )}
+
+          </div>
+
+        </div>
+
+        {/* INPUT */}
+
+        <div className="border-t border-white/10 px-10 py-6">
+
+          <div className="mx-auto flex max-w-5xl gap-4">
+
+            <input
+              value={input}
+              onChange={(e) =>
+                setInput(
+                  e.target.value
+                )
+              }
+              onKeyDown={(e) => {
+
+                if (
+                  e.key ===
+                  "Enter"
+                ) {
+
+                  sendMessage();
+
+                }
+
+              }}
+              placeholder="Ask AVERON AI..."
+              className="h-[64px] flex-1 rounded-3xl border border-white/10 bg-white/[0.03] px-6 text-sm"
+            />
+
+            <button
+              onClick={
+                sendMessage
+              }
+              disabled={sending}
+              className="rounded-3xl bg-white px-8 text-sm font-semibold text-black transition hover:scale-[1.02] disabled:opacity-50"
+            >
+
+              Send
+
+            </button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* RIGHT PANEL */}
+
+      <div className="w-[360px] overflow-y-auto border-l border-white/10 bg-black/20 backdrop-blur-xl">
+
+        <div className="p-6">
+
+          <div className="mb-6 text-xs uppercase tracking-[0.3em] text-zinc-500">
+
+            AI Strategic Analysis
+
+          </div>
+
+          {/* DEAL HEALTH */}
+
+          <div className="mb-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
+
+            <div className="text-sm text-zinc-500">
+
+              Deal Health
+
+            </div>
+
+            <div className="mt-3 text-4xl font-bold text-[#00ffcc]">
+
+              {lead.urgency ===
+              "high"
+                ? "Hot"
+                : lead.urgency ===
+                  "medium"
+                ? "Warm"
+                : "Cold"}
+
+            </div>
+
+          </div>
+
+          {/* CLOSE PROBABILITY */}
+
+          <div className="mb-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
+
+            <div className="text-sm text-zinc-500">
+
+              Close Probability
+
+            </div>
+
+            <div className="mt-3 text-5xl font-bold">
+
+              {lead.close_probability ||
+                0}
+              %
+
+            </div>
+
+          </div>
+
+          {/* RECOMMENDATION */}
+
+          <div className="mb-5 rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
+
+            <div className="mb-3 text-sm text-zinc-500">
+
+              Recommended Action
+
+            </div>
+
+            <div className="text-sm leading-7 text-zinc-300">
+
+              {lead.recommendation ||
+                "Continue qualification."}
+
+            </div>
+
+          </div>
+
+          {/* ACTIVE AGENT */}
+
+          <div className="mb-5 rounded-[28px] border border-[#00ffcc]/20 bg-[#00ffcc]/10 p-6">
+
+            <div className="text-sm text-[#00ffcc]">
+
+              Active Agent
+
+            </div>
+
+            <div className="mt-3 text-2xl font-bold">
+
+              {activeAgent}
+
+            </div>
+
+          </div>
+
+          {/* AI EVENT TIMELINE */}
+
+          <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-6">
+
+            <div className="mb-5 text-sm text-zinc-500">
+
+              AI Event Timeline
+
+            </div>
+
+            <div className="space-y-4">
+
+              {events.length ===
+              0 ? (
+
+                <div className="text-sm text-zinc-500">
+
+                  No AI events yet.
+
+                </div>
+
+              ) : (
+
+                events.map(
+                  (
+                    event
+                  ) => (
 
                     <div
-                      key={task.id}
-                      className="rounded-2xl border border-white/10 bg-black p-5"
+                      key={
+                        event.id
+                      }
+                      className="rounded-2xl border border-white/10 bg-black/20 p-4"
                     >
 
-                      <div className="text-xl font-semibold">
+                      <div className="mb-2 text-xs uppercase tracking-[0.2em] text-[#00ffcc]">
 
-                        {task.task}
-
-                      </div>
-
-                      <div className="text-zinc-500 mt-3">
-
-                        {task.assigned_agent}
+                        {event.type}
 
                       </div>
 
-                      <div className="flex gap-3 mt-5">
+                      <div className="text-sm leading-6 text-zinc-300">
 
-                        <div className="rounded-xl bg-white/5 border border-white/10 px-4 py-2 text-sm">
-
-                          {task.status}
-
-                        </div>
-
-                        <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2 text-sm text-red-400">
-
-                          {task.priority}
-
-                        </div>
+                        {event.message}
 
                       </div>
 
                     </div>
 
-                  ))
+                  )
+                )
 
-                )}
-
-              </div>
+              )}
 
             </div>
 
