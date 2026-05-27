@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type OpenAI from "openai";
 
+import { selectObjectionPlaybookOverlay } from "@/lib/ai/agents/revenue-playbook";
 import { routeRevenueAgent } from "@/lib/ai/agents/revenue-router";
+import { deriveConversationStrategy } from "@/lib/ai/agents/revenue-strategy";
 import { getOpenAIClient } from "@/lib/ai/openai";
 import { buildRevenueChatPrompt } from "@/lib/ai/prompts/revenue-chat";
 import type { LeadRecord, RevenueAction } from "@/lib/domain/leads/types";
@@ -68,6 +70,16 @@ export async function respondToLeadMessage({
       leadId,
       organizationId,
     });
+  const strategy = deriveConversationStrategy({
+    lead,
+    latestMessage: message,
+    recentConversationTurns,
+  });
+  const playbookOverlay = selectObjectionPlaybookOverlay({
+    latestMessage: message,
+    recentConversationTurns,
+    strategy,
+  });
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -77,6 +89,8 @@ export async function respondToLeadMessage({
         content: buildRevenueChatPrompt({
           activeAgent,
           lead,
+          strategy,
+          playbookOverlay,
         }),
       },
       ...recentConversationTurns,
