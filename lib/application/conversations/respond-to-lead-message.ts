@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type OpenAI from "openai";
 
 import { routeRevenueAgent } from "@/lib/ai/agents/revenue-router";
 import { getOpenAIClient } from "@/lib/ai/openai";
@@ -21,6 +22,13 @@ type LeadUpdate = {
   deal_risk: string;
   close_probability: number;
 };
+
+type ConversationTurn = {
+  role: string | null;
+  message: string | null;
+};
+
+const RECENT_CONVERSATION_LIMIT = 10;
 
 export async function respondToLeadMessage({
   supabase,
@@ -54,6 +62,12 @@ export async function respondToLeadMessage({
 
   const activeAgent = routeRevenueAgent(message);
   const openai = getOpenAIClient();
+  const recentConversationTurns =
+    await loadRecentConversationTurns({
+      supabase,
+      leadId,
+      organizationId,
+    });
 
   const completion = await openai.chat.completions.create({
     model: "gpt-4.1-mini",
@@ -65,10 +79,7 @@ export async function respondToLeadMessage({
           lead,
         }),
       },
-      {
-        role: "user",
-        content: message,
-      },
+      ...recentConversationTurns,
     ],
   });
 
@@ -168,6 +179,52 @@ export async function respondToLeadMessage({
     lead: updatedLead,
     actions,
   };
+}
+
+async function loadRecentConversationTurns({
+  supabase,
+  leadId,
+  organizationId,
+}: {
+  supabase: SupabaseClient;
+  leadId: string;
+  organizationId: string;
+}): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("role, message")
+    .eq("lead_id", leadId)
+    .eq("organization_id", organizationId)
+    .order("created_at", {
+      ascending: false,
+    })
+    .limit(RECENT_CONVERSATION_LIMIT);
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as ConversationTurn[])
+    .reverse()
+    .flatMap((turn) => {
+      if (
+        turn.role !== "user" &&
+        turn.role !== "assistant"
+      ) {
+        return [];
+      }
+
+      if (!turn.message) {
+        return [];
+      }
+
+      return [
+        {
+          role: turn.role,
+          content: turn.message,
+        },
+      ];
+    });
 }
 
 async function analyzeRevenueSignals({
