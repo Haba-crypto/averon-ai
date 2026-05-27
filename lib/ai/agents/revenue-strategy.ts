@@ -40,6 +40,13 @@ type StrategyInput = {
   recentConversationTurns: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
 };
 
+type QualificationDepth = {
+  hasPain: boolean;
+  hasOperationalDetail: boolean;
+  hasImpact: boolean;
+  hasCurrentState: boolean;
+};
+
 const OBJECTION_TERMS = [
   "later",
   "not now",
@@ -61,6 +68,99 @@ const HIGH_INTENT_TERMS = [
   "buy",
   "purchase",
   "next week",
+];
+
+const PAIN_TERMS = [
+  "problem",
+  "challenge",
+  "pain",
+  "fix",
+  "stuck",
+  "bottleneck",
+  "manual",
+  "slow",
+  "delay",
+  "delayed",
+  "inconsistent",
+  "leak",
+  "leaking",
+  "missed",
+  "missing",
+  "fall through",
+  "falling through",
+  "not converting",
+  "low response",
+  "can't keep up",
+  "cannot keep up",
+  "struggle",
+  "hard to",
+  "takes too long",
+];
+
+const OPERATIONAL_DETAIL_TERMS = [
+  "workflow",
+  "process",
+  "handoff",
+  "routing",
+  "follow-up",
+  "follow up",
+  "response time",
+  "speed to lead",
+  "sdr",
+  "sales team",
+  "rep",
+  "crm",
+  "inbound",
+  "outbound",
+  "lead queue",
+  "pipeline",
+  "qualification",
+  "volume",
+  "team",
+  "how many",
+];
+
+const IMPACT_TERMS = [
+  "revenue",
+  "cost",
+  "expensive",
+  "waste",
+  "wasted",
+  "lost",
+  "losing",
+  "churn",
+  "conversion",
+  "pipeline",
+  "quota",
+  "roi",
+  "hours",
+  "time",
+  "delay",
+  "delays",
+  "money",
+  "headcount",
+  "sla",
+];
+
+const CURRENT_STATE_TERMS = [
+  "currently",
+  "today",
+  "right now",
+  "using",
+  "we use",
+  "we have",
+  "hubspot",
+  "salesforce",
+  "crm",
+  "spreadsheet",
+  "manual",
+  "agency",
+  "vendor",
+  "tool",
+  "system",
+  "process",
+  "team",
+  "rep",
 ];
 
 export function deriveConversationStrategy({
@@ -93,6 +193,9 @@ export function deriveConversationStrategy({
   const repeatedObjection =
     countMatches(transcript, OBJECTION_TERMS) > 1 &&
     hasObjection;
+  const qualificationDepth = deriveQualificationDepth(
+    `${transcript}\n${latest}`
+  );
 
   const stage = deriveStage({
     status,
@@ -100,6 +203,7 @@ export function deriveConversationStrategy({
     closeProbability,
     highIntent,
     hasObjection,
+    qualificationDepth,
   });
   const pressure = derivePressure({
     stage,
@@ -123,6 +227,7 @@ export function deriveConversationStrategy({
       pressure,
       highIntent,
       hasObjection,
+      qualificationDepth,
     }),
   };
 }
@@ -133,12 +238,14 @@ function deriveStage({
   closeProbability,
   highIntent,
   hasObjection,
+  qualificationDepth,
 }: {
   status: string;
   intentScore: number;
   closeProbability: number;
   highIntent: boolean;
   hasObjection: boolean;
+  qualificationDepth: QualificationDepth;
 }): ConversationStage {
   if (hasObjection) {
     return "objection";
@@ -151,11 +258,18 @@ function deriveStage({
     return "proposal";
   }
 
-  if (highIntent || intentScore >= 45 || closeProbability >= 55) {
+  if (
+    hasStrongQualificationDepth(qualificationDepth) &&
+    (highIntent || intentScore >= 45 || closeProbability >= 55)
+  ) {
     return "demo_push";
   }
 
-  if (status.includes("qualified") || intentScore >= 25) {
+  if (
+    status.includes("qualified") ||
+    intentScore >= 25 ||
+    (highIntent && hasMeaningfulQualificationDepth(qualificationDepth))
+  ) {
     return "qualified";
   }
 
@@ -253,17 +367,30 @@ function deriveCtaMode({
   pressure,
   highIntent,
   hasObjection,
+  qualificationDepth,
 }: {
   stage: ConversationStage;
   pressure: ConversationPressure;
   highIntent: boolean;
   hasObjection: boolean;
+  qualificationDepth: QualificationDepth;
 }): CtaMode {
   if (hasObjection || stage === "objection") {
     return "resolve_objection";
   }
 
+  if (
+    highIntent &&
+    !hasMeaningfulQualificationDepth(qualificationDepth)
+  ) {
+    return "qualify";
+  }
+
   if (stage === "demo_push" || highIntent) {
+    if (!hasStrongQualificationDepth(qualificationDepth)) {
+      return "soft_next_step";
+    }
+
     return "direct_demo";
   }
 
@@ -286,4 +413,37 @@ function countMatches(value: string, terms: string[]) {
   return terms.reduce((count, term) => {
     return value.includes(term) ? count + 1 : count;
   }, 0);
+}
+
+function deriveQualificationDepth(transcript: string): QualificationDepth {
+  return {
+    hasPain: includesAny(transcript, PAIN_TERMS),
+    hasOperationalDetail: includesAny(
+      transcript,
+      OPERATIONAL_DETAIL_TERMS
+    ),
+    hasImpact: includesAny(transcript, IMPACT_TERMS),
+    hasCurrentState: includesAny(transcript, CURRENT_STATE_TERMS),
+  };
+}
+
+function hasMeaningfulQualificationDepth({
+  hasPain,
+  hasOperationalDetail,
+  hasImpact,
+}: QualificationDepth) {
+  return hasPain && (hasOperationalDetail || hasImpact);
+}
+
+function hasStrongQualificationDepth({
+  hasPain,
+  hasOperationalDetail,
+  hasImpact,
+  hasCurrentState,
+}: QualificationDepth) {
+  return (
+    hasPain &&
+    hasOperationalDetail &&
+    (hasImpact || hasCurrentState)
+  );
 }
