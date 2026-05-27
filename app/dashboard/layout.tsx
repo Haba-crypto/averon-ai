@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth/session";
+import DashboardShell from "@/components/dashboard/DashboardShell";
 
 export default function DashboardLayout({
   children,
@@ -15,14 +16,6 @@ async function AuthenticatedDashboard({
 }) {
   await requireUser();
 
-  return (
-
-    <div className="min-h-screen">
-
-      {children}
-
-    </div>
-
-  );
+  return <DashboardShell>{children}</DashboardShell>;
 
 }

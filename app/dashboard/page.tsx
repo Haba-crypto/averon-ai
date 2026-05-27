@@ -1,474 +1,219 @@
 "use client";
 
+import Link from "next/link";
 import {
-  useEffect,
-  useState,
-} from "react";
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  MessageSquare,
+  TrendingUp,
+  Users,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 
-const agents = [
+type DashboardSummary = {
+  leadsCount?: number;
+  tasksCount?: number;
+  conversationsCount?: number;
+};
 
-  {
-    name: "SDR Agent",
-    status: "active",
-    tasks: 148,
-  },
-
-  {
-    name: "Closer Agent",
-    status: "active",
-    tasks: 64,
-  },
-
-  {
-    name: "Research Agent",
-    status: "active",
-    tasks: 203,
-  },
-
-  {
-    name: "Ops Agent",
-    status: "active",
-    tasks: 91,
-  },
-
-];
-
-const activities = [
-
-  "SDR Agent qualified Tesla lead",
-
-  "Closer Agent scheduled enterprise demo",
-
-  "Research Agent enriched 24 leads",
-
-  "Ops Agent optimized pipeline routing",
-
-  "AI generated outbound sequence",
-
-];
-
-type DashboardStat = {
+type WorkflowBlock = {
   title: string;
+  description: string;
+  href: string;
   value: string;
-  growth: string;
+  label: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  tone?: "attention" | "momentum" | "execution";
 };
 
 export default function DashboardPage() {
-
-  const [stats, setStats] =
-    useState<DashboardStat[]>([]);
-
-  async function loadDashboard() {
-    const response = await fetch("/api/dashboard/summary");
-    const data = await response.json();
-    const summary = data.summary ?? {};
-
-    setStats([
-
-      {
-        title:
-          "Pipeline Value",
-
-        value:
-          "$847K",
-
-        growth:
-          "+18%",
-      },
-
-      {
-        title:
-          "Active Leads",
-
-        value:
-          String(
-            summary.leadsCount || 0
-          ),
-
-        growth:
-          "+12%",
-      },
-
-      {
-        title:
-          "AI Actions Today",
-
-        value:
-          String(
-            summary.tasksCount || 0
-          ),
-
-        growth:
-          "+41%",
-      },
-
-      {
-        title:
-          "Conversations",
-
-        value:
-          String(
-            summary.conversationsCount || 0
-          ),
-
-        growth:
-          "+9%",
-      },
-
-    ]);
-
-  }
+  const [summary, setSummary] = useState<DashboardSummary>({});
 
   useEffect(() => {
+    async function loadDashboard() {
+      const response = await fetch("/api/dashboard/summary");
+      const data = await response.json();
 
-    async function initDashboard() {
-      await loadDashboard();
+      setSummary(data.summary ?? {});
     }
 
-    void initDashboard();
-
+    void loadDashboard();
   }, []);
 
+  const attentionBlocks: WorkflowBlock[] = [
+    {
+      title: "Execution Queue",
+      description: "Open tasks that need approval, completion, or routing.",
+      href: "/dashboard/tasks",
+      value: String(summary.tasksCount ?? 0),
+      label: "active tasks",
+      icon: CheckCircle2,
+      tone: "attention",
+    },
+    {
+      title: "Lead Review",
+      description: "Inspect live leads before AI proceeds into next actions.",
+      href: "/dashboard/leads",
+      value: String(summary.leadsCount ?? 0),
+      label: "tracked leads",
+      icon: Users,
+      tone: "attention",
+    },
+  ];
+
+  const momentumBlocks: WorkflowBlock[] = [
+    {
+      title: "Pipeline Movement",
+      description: "Monitor where revenue work is progressing right now.",
+      href: "/dashboard/leads",
+      value: "$847K",
+      label: "pipeline value",
+      icon: TrendingUp,
+      tone: "momentum",
+    },
+    {
+      title: "Conversation Demand",
+      description: "Review buyer replies and AI-assisted revenue context.",
+      href: "/dashboard/conversations",
+      value: String(summary.conversationsCount ?? 0),
+      label: "conversations",
+      icon: MessageSquare,
+      tone: "momentum",
+    },
+  ];
+
+  const executionBlocks: WorkflowBlock[] = [
+    {
+      title: "Agent Network",
+      description: "View the autonomous roles coordinating revenue execution.",
+      href: "/dashboard/agents",
+      value: "4",
+      label: "active agents",
+      icon: Bot,
+      tone: "execution",
+    },
+    {
+      title: "Live AI Work",
+      description: "Jump into current workflow orchestration and outcomes.",
+      href: "/dashboard/tasks",
+      value: String(summary.tasksCount ?? 0),
+      label: "AI actions",
+      icon: CheckCircle2,
+      tone: "execution",
+    },
+  ];
+
   return (
-
-    <div className="min-h-screen bg-black p-10 text-white">
-
-      {/* HEADER */}
-
-      <div className="flex items-center justify-between">
-
+    <main className="min-h-screen bg-[#050505] px-6 py-8 text-white lg:px-10">
+      <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 xl:flex-row xl:items-end xl:justify-between">
         <div>
-
-          <h1 className="text-7xl font-bold">
-
-            AI Command Center
-
+          <div className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">
+            Mission Control
+          </div>
+          <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-6xl">
+            AI Revenue Execution System
           </h1>
-
-          <p className="mt-4 text-2xl text-zinc-500">
-
-            Autonomous revenue infrastructure
-
+          <p className="mt-4 max-w-2xl text-lg leading-8 text-zinc-500">
+            One operating surface for attention, pipeline movement, and live AI
+            workflow execution.
           </p>
-
         </div>
 
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-950 px-8 py-6">
-
-          <div className="text-zinc-500">
-
-            System Status
-
+        <div className="operational-surface premium-card rounded-2xl border border-zinc-800 bg-zinc-950 px-5 py-4">
+          <div className="text-sm text-zinc-500">System Status</div>
+          <div className="mt-2 flex items-center gap-2 text-sm font-semibold uppercase text-green-400">
+            <span className="live-dot live-beacon h-2 w-2 rounded-full bg-green-400" />
+            Operational
           </div>
-
-          <div className="mt-3 flex items-center gap-3 text-2xl font-bold text-green-400">
-
-            <div className="h-4 w-4 rounded-full bg-green-400" />
-
-            OPERATIONAL
-
-          </div>
-
         </div>
+      </header>
 
+      <div className="mt-8 space-y-8">
+        <DashboardSection
+          eyebrow="Requires Attention"
+          title="Human decisions that unblock revenue execution"
+          blocks={attentionBlocks}
+        />
+
+        <DashboardSection
+          eyebrow="Revenue Momentum"
+          title="Where pipeline work is moving"
+          blocks={momentumBlocks}
+        />
+
+        <DashboardSection
+          eyebrow="Live AI Execution"
+          title="Autonomous work currently carrying the system"
+          blocks={executionBlocks}
+        />
       </div>
-
-      {/* STATS */}
-
-      <div className="mt-12 grid grid-cols-4 gap-6">
-
-        {stats.map((stat) => (
-
-          <div
-            key={stat.title}
-            className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8"
-          >
-
-            <div className="text-lg text-zinc-500">
-
-              {stat.title}
-
-            </div>
-
-            <div className="mt-4 text-5xl font-bold">
-
-              {stat.value}
-
-            </div>
-
-            <div className="mt-4 text-lg font-semibold text-green-400">
-
-              {stat.growth}
-
-            </div>
-
-          </div>
-
-        ))}
-
-      </div>
-
-      {/* MAIN GRID */}
-
-      <div className="mt-10 grid grid-cols-[1.2fr_0.8fr] gap-6">
-
-        {/* LEFT */}
-
-        <div className="space-y-6">
-
-          {/* LIVE ACTIVITY */}
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-
-            <div className="flex items-center justify-between">
-
-              <h2 className="text-4xl font-bold">
-
-                Live AI Activity
-
-              </h2>
-
-              <div className="flex items-center gap-3 rounded-2xl bg-green-500/20 px-4 py-2 text-sm font-semibold uppercase text-green-400">
-
-                <div className="h-3 w-3 rounded-full bg-green-400" />
-
-                Live
-
-              </div>
-
-            </div>
-
-            <div className="mt-8 space-y-4">
-
-              {activities.map(
-                (
-                  activity,
-                  index
-                ) => (
-
-                  <div
-                    key={index}
-                    className="rounded-2xl border border-zinc-800 bg-black px-6 py-5"
-                  >
-
-                    {activity}
-
-                  </div>
-
-                )
-              )}
-
-            </div>
-
-          </div>
-
-          {/* REVENUE GRAPH */}
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-
-            <div className="flex items-center justify-between">
-
-              <h2 className="text-4xl font-bold">
-
-                Revenue Intelligence
-
-              </h2>
-
-              <div className="text-green-400">
-
-                +28%
-
-              </div>
-
-            </div>
-
-            <div className="mt-10 flex h-[300px] items-end gap-4">
-
-              {[40, 65, 30, 80, 55, 92, 74, 100].map(
-                (
-                  height,
-                  index
-                ) => (
-
-                  <div
-                    key={index}
-                    className="flex-1 rounded-t-3xl bg-white"
-                    style={{
-                      height: `${height}%`,
-                    }}
-                  />
-
-                )
-              )}
-
-            </div>
-
-          </div>
-
-        </div>
-
-        {/* RIGHT */}
-
-        <div className="space-y-6">
-
-          {/* AGENTS */}
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-
-            <h2 className="text-4xl font-bold">
-
-              AI Agents
-
-            </h2>
-
-            <div className="mt-8 space-y-4">
-
-              {agents.map((agent) => (
-
-                <div
-                  key={agent.name}
-                  className="rounded-2xl border border-zinc-800 bg-black p-5"
-                >
-
-                  <div className="flex items-center justify-between">
-
-                    <div>
-
-                      <div className="text-2xl font-bold">
-
-                        {agent.name}
-
-                      </div>
-
-                      <div className="mt-2 text-zinc-500">
-
-                        {agent.tasks} active tasks
-
-                      </div>
-
-                    </div>
-
-                    <div className="flex items-center gap-2 rounded-2xl bg-green-500/20 px-3 py-2 text-sm font-semibold text-green-400">
-
-                      <div className="h-2 w-2 rounded-full bg-green-400" />
-
-                      {agent.status}
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-              ))}
-
-            </div>
-
-          </div>
-
-          {/* SYSTEM METRICS */}
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-
-            <h2 className="text-4xl font-bold">
-
-              System Metrics
-
-            </h2>
-
-            <div className="mt-8 space-y-6">
-
-              <div>
-
-                <div className="flex items-center justify-between">
-
-                  <span>
-                    AI Throughput
-                  </span>
-
-                  <span>
-                    94%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800">
-
-                  <div
-                    className="h-full bg-white"
-                    style={{
-                      width: "94%",
-                    }}
-                  />
-
-                </div>
-
-              </div>
-
-              <div>
-
-                <div className="flex items-center justify-between">
-
-                  <span>
-                    Workflow Automation
-                  </span>
-
-                  <span>
-                    87%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800">
-
-                  <div
-                    className="h-full bg-white"
-                    style={{
-                      width: "87%",
-                    }}
-                  />
-
-                </div>
-
-              </div>
-
-              <div>
-
-                <div className="flex items-center justify-between">
-
-                  <span>
-                    CRM Intelligence
-                  </span>
-
-                  <span>
-                    91%
-                  </span>
-
-                </div>
-
-                <div className="mt-3 h-3 overflow-hidden rounded-full bg-zinc-800">
-
-                  <div
-                    className="h-full bg-white"
-                    style={{
-                      width: "91%",
-                    }}
-                  />
-
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
-    </div>
-
+    </main>
   );
+}
 
+function DashboardSection({
+  eyebrow,
+  title,
+  blocks,
+}: {
+  eyebrow: string;
+  title: string;
+  blocks: WorkflowBlock[];
+}) {
+  return (
+    <section>
+      <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
+            {eyebrow}
+          </div>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight">
+            {title}
+          </h2>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {blocks.map((block) => (
+          <WorkflowCard key={block.title} block={block} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function WorkflowCard({
+  block,
+}: {
+  block: WorkflowBlock;
+}) {
+  const Icon = block.icon;
+
+  return (
+    <Link
+      href={block.href}
+      className="operational-surface premium-card group flex min-h-44 flex-col justify-between rounded-2xl border border-zinc-800 bg-zinc-950 p-6 hover:bg-[#101010]"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-800 bg-black text-zinc-300 transition duration-300 group-hover:border-[#00ffcc]/30 group-hover:text-white group-hover:shadow-[0_0_30px_rgba(0,255,204,0.08)]">
+          <Icon className="h-5 w-5" />
+        </div>
+        <ArrowRight className="h-5 w-5 text-zinc-600 transition duration-300 group-hover:translate-x-1 group-hover:text-white" />
+      </div>
+
+      <div className="mt-8">
+        <div className="flex items-baseline gap-3">
+          <div className="text-4xl font-semibold tracking-tight">
+            {block.value}
+          </div>
+          <div className="text-sm text-zinc-500">{block.label}</div>
+        </div>
+        <h3 className="mt-5 text-xl font-semibold">{block.title}</h3>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-500">
+          {block.description}
+        </p>
+      </div>
+    </Link>
+  );
 }
