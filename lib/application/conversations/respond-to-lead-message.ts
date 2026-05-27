@@ -7,6 +7,7 @@ import { deriveConversationStrategy } from "@/lib/ai/agents/revenue-strategy";
 import { getOpenAIClient } from "@/lib/ai/openai";
 import { buildRevenueChatPrompt } from "@/lib/ai/prompts/revenue-chat";
 import type { LeadRecord, RevenueAction } from "@/lib/domain/leads/types";
+import { routeOperationalWork } from "@/lib/application/workflow-actions/operational-routing";
 
 type RespondToLeadMessageInput = {
   supabase: SupabaseClient;
@@ -132,9 +133,6 @@ export async function respondToLeadMessage({
   }
 
   const leadUpdate = await analyzeRevenueSignals({
-    supabase,
-    leadId,
-    organizationId,
     lead,
     message,
     activeAgent,
@@ -186,6 +184,29 @@ export async function respondToLeadMessage({
     type: "recommendation",
     message: leadUpdate.recommendation,
   });
+
+  try {
+    const routingResult = await routeOperationalWork({
+      supabase,
+      organizationId,
+      leadId,
+      leadState: leadUpdate,
+      latestMessage: message,
+    });
+
+    if (routingResult.routed) {
+      await logAction({
+        type: "queue_routing",
+        message: `${routingResult.reason} Routed to ${routingResult.status}.`,
+      });
+    }
+  } catch (error) {
+    console.error("OPERATIONAL ROUTING FAILED", {
+      leadId,
+      organizationId,
+      error,
+    });
+  }
 
   return {
     reply,
@@ -242,17 +263,11 @@ async function loadRecentConversationTurns({
 }
 
 async function analyzeRevenueSignals({
-  supabase,
-  leadId,
-  organizationId,
   lead,
   message,
   activeAgent,
   logAction,
 }: {
-  supabase: SupabaseClient;
-  leadId: string;
-  organizationId: string;
   lead: LeadRecord | null;
   message: string;
   activeAgent: string;
@@ -291,22 +306,9 @@ async function analyzeRevenueSignals({
       message: "Pipeline moved to qualified",
     });
 
-    const { error: taskError } = await supabase.from("tasks").insert({
-      lead_id: leadId,
-      organization_id: organizationId,
-      title: "High-intent follow-up",
-      description:
-        "Lead requested demo/pricing/integration discussion.",
-      priority: "high",
-    });
-
-    if (taskError) {
-      throw taskError;
-    }
-
     await logAction({
       type: "task",
-      message: "Created high-intent follow-up task",
+      message: "High-intent work routed to execution queue",
     });
   }
 

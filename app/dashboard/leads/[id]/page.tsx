@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -46,6 +48,15 @@ type AIEvent = {
   type: string;
   message: string;
   created_at: string;
+};
+
+type WorkflowAction = "approve" | "run";
+
+type WorkflowActionStatus = {
+  type: "success" | "error";
+  message: string;
+  detail?: string;
+  action?: WorkflowAction;
 };
 
 const eventSequence = [
@@ -194,6 +205,91 @@ export default function LeadPage() {
   const [loading, setLoading] =
     useState(true);
 
+  const [workflowActionLoading, setWorkflowActionLoading] =
+    useState<WorkflowAction | null>(null);
+
+  const [workflowActionStatus, setWorkflowActionStatus] =
+    useState<WorkflowActionStatus | null>(null);
+
+  const [highlightedEventId, setHighlightedEventId] =
+    useState<string | null>(null);
+
+  const [leadStateUpdated, setLeadStateUpdated] =
+    useState(false);
+
+  const [workflowTaskCount, setWorkflowTaskCount] =
+    useState(0);
+
+  const knownEventIdsRef =
+    useRef<Set<string>>(new Set());
+
+  const lastLeadStateRef =
+    useRef<string>("");
+
+  const applyEvents = useCallback((
+    nextEvents: AIEvent[],
+    highlightNewEvents: boolean
+  ) => {
+    const previousEventIds =
+      knownEventIdsRef.current;
+    const nextEventIds =
+      new Set(
+        nextEvents.map((event) => event.id)
+      );
+    const newEvents =
+      nextEvents.filter(
+        (event) =>
+          !previousEventIds.has(event.id)
+      );
+
+    setEvents(nextEvents);
+    knownEventIdsRef.current =
+      nextEventIds;
+
+    if (
+      highlightNewEvents &&
+      previousEventIds.size > 0 &&
+      newEvents.length > 0
+    ) {
+      setHighlightedEventId(
+        newEvents[0].id
+      );
+    }
+  }, []);
+
+  const applyLeadState = useCallback((
+    nextLead: Lead | null
+  ) => {
+    if (!nextLead) {
+      setLead(null);
+      return;
+    }
+
+    const nextSignature =
+      [
+        nextLead.status,
+        nextLead.intent_score,
+        nextLead.urgency,
+        nextLead.recommendation,
+        nextLead.close_probability,
+      ].join("|");
+
+    if (
+      lastLeadStateRef.current &&
+      lastLeadStateRef.current !==
+        nextSignature
+    ) {
+      setLeadStateUpdated(true);
+      window.setTimeout(() => {
+        setLeadStateUpdated(false);
+      }, 3600);
+    }
+
+    lastLeadStateRef.current =
+      nextSignature;
+    setLead(nextLead);
+  }, []);
+
   useEffect(() => {
 
     async function loadData() {
@@ -217,7 +313,7 @@ export default function LeadPage() {
               leadId
           );
 
-        setLead(
+        applyLeadState(
           foundLead || null
         );
 
@@ -246,9 +342,29 @@ export default function LeadPage() {
         const eventData =
           await eventRes.json();
 
-        setEvents(
+        applyEvents(
           eventData.events ||
-            []
+            [],
+          false
+        );
+
+        const tasksRes =
+          await fetch("/api/tasks");
+
+        const tasksData =
+          await tasksRes.json();
+
+        setWorkflowTaskCount(
+          (
+            tasksData.tasks || []
+          ).filter(
+            (task: {
+              lead_id?: string | null;
+              status?: string | null;
+            }) =>
+              task.lead_id === leadId &&
+              task.status !== "completed"
+          ).length
         );
 
       } catch (error) {
@@ -263,13 +379,17 @@ export default function LeadPage() {
 
     if (leadId) {
 
-      loadData();
+      void loadData();
 
     }
 
-  }, [leadId]);
+  }, [
+    applyEvents,
+    applyLeadState,
+    leadId,
+  ]);
 
-  async function refreshEvents() {
+  const refreshEvents = useCallback(async function refreshEvents() {
 
     try {
 
@@ -281,9 +401,10 @@ export default function LeadPage() {
       const eventData =
         await eventRes.json();
 
-      setEvents(
+      applyEvents(
         eventData.events ||
-          []
+          [],
+        true
       );
 
     } catch (error) {
@@ -292,7 +413,10 @@ export default function LeadPage() {
 
     }
 
-  }
+  }, [
+    applyEvents,
+    leadId,
+  ]);
 
   async function sendMessage() {
 
@@ -428,6 +552,93 @@ export default function LeadPage() {
 
   }
 
+  const refreshOperationalState = useCallback(async function refreshOperationalState() {
+    try {
+      const [
+        leadsRes,
+        eventRes,
+        tasksRes,
+      ] = await Promise.all([
+        fetch("/api/leads"),
+        fetch(
+          `/api/ai-events?leadId=${leadId}`
+        ),
+        fetch("/api/tasks"),
+      ]);
+
+      const leadsData =
+        await leadsRes.json();
+      const eventData =
+        await eventRes.json();
+      const tasksData =
+        await tasksRes.json();
+      const foundLead =
+        leadsData.leads?.find(
+          (item: Lead) =>
+            item.id === leadId
+        ) || null;
+
+      applyLeadState(foundLead);
+      applyEvents(
+        eventData.events || [],
+        true
+      );
+      setWorkflowTaskCount(
+        (
+          tasksData.tasks || []
+        ).filter(
+          (task: {
+            lead_id?: string | null;
+            status?: string | null;
+          }) =>
+            task.lead_id === leadId &&
+            task.status !== "completed"
+        ).length
+      );
+    } catch (error) {
+      console.error(
+        "LIVE OPERATIONAL REFRESH ERROR",
+        error
+      );
+    }
+  }, [
+    applyEvents,
+    applyLeadState,
+    leadId,
+  ]);
+
+  useEffect(() => {
+    if (!highlightedEventId) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setHighlightedEventId(null);
+    }, 5200);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [highlightedEventId]);
+
+  useEffect(() => {
+    if (!leadId || loading) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void refreshOperationalState();
+    }, 10000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [
+    leadId,
+    loading,
+    refreshOperationalState,
+  ]);
+
   if (loading) {
 
     return (
@@ -453,6 +664,110 @@ export default function LeadPage() {
       </div>
 
     );
+
+  }
+
+  async function executeAction(
+    action: WorkflowAction,
+    recommendation: string
+  ) {
+
+    const safeRecommendation =
+      recommendation.trim() ||
+      lead?.recommendation?.trim() ||
+      "Continue qualification.";
+
+    if (
+      workflowActionLoading
+    ) {
+      return;
+    }
+
+    setWorkflowActionLoading(action);
+    setWorkflowActionStatus(null);
+
+    try {
+
+      const response =
+        await fetch(
+          "/api/workflow-actions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              leadId,
+              action,
+              recommendation:
+                safeRecommendation,
+            }),
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Workflow action failed"
+        );
+      }
+
+      setWorkflowActionStatus({
+        type:
+          data.warning &&
+          !data.task
+            ? "error"
+            : "success",
+        action,
+        message: data.warning
+          ? action === "approve"
+            ? "Recommendation approved"
+            : "Execution initiated"
+          : action === "approve"
+          ? "Recommendation approved"
+          : "Execution initiated",
+        detail: data.warning
+          ? "Action recorded. Review task queue if follow-up is missing."
+          : action === "approve"
+          ? "This recommendation has entered the revenue execution queue."
+          : "AVERON AI created an execution task and activated the workflow trail.",
+      });
+
+      if (data.event?.id) {
+        setHighlightedEventId(
+          data.event.id
+        );
+      }
+
+      try {
+        await refreshOperationalState();
+      } catch (refreshError) {
+        console.error(
+          "WORKFLOW ACTION TIMELINE REFRESH ERROR",
+          refreshError
+        );
+      }
+
+    } catch (error) {
+
+      setWorkflowActionStatus({
+        type: "error",
+        action,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Workflow action failed",
+        detail:
+          "The action was not committed. Review the issue and try again.",
+      });
+
+    }
+
+    setWorkflowActionLoading(null);
 
   }
 
@@ -505,7 +820,13 @@ export default function LeadPage() {
 
         <div className="space-y-3 px-4 pb-5 2xl:px-5">
 
-          <div className="operational-surface premium-card grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+          <div
+            className={`operational-surface premium-card grid grid-cols-2 gap-3 rounded-2xl border bg-white/[0.025] p-4 transition ${
+              leadStateUpdated
+                ? "execution-pulse border-[#00ffcc]/25 shadow-[0_0_30px_rgba(0,255,204,0.08)]"
+                : "border-white/10"
+            }`}
+          >
 
             <div>
 
@@ -531,7 +852,7 @@ export default function LeadPage() {
 
               </div>
 
-              <div className="mt-2 truncate text-sm font-medium text-[#00ffcc]">
+              <div className="mt-2 truncate text-sm font-medium text-[#00ffcc] transition-opacity duration-500">
 
                 {lead.status}
 
@@ -649,10 +970,41 @@ export default function LeadPage() {
                             <button
                               key={label}
                               type="button"
-                              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-[#00ffcc]/30 hover:text-white"
+                              onClick={() => {
+                                if (
+                                  label ===
+                                  "Approve"
+                                ) {
+                                  void executeAction(
+                                    "approve",
+                                    action.message
+                                  );
+                                }
+
+                                if (
+                                  label ===
+                                  "Run"
+                                ) {
+                                  void executeAction(
+                                    "run",
+                                    action.message
+                                  );
+                                }
+                              }}
+                              disabled={
+                                label === "Edit" ||
+                                Boolean(
+                                  workflowActionLoading
+                                )
+                              }
+                              className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-[#00ffcc]/30 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
                             >
 
-                              {label}
+                              {workflowActionLoading &&
+                              label.toLowerCase() ===
+                                workflowActionLoading
+                                ? "Working..."
+                                : label}
 
                             </button>
 
@@ -883,7 +1235,13 @@ export default function LeadPage() {
 
           {/* RECOMMENDATION */}
 
-          <div className="operational-surface premium-card mb-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+          <div
+            className={`operational-surface premium-card mb-4 rounded-2xl border bg-white/[0.025] p-4 ${
+              workflowActionLoading
+                ? "execution-pulse border-[#00ffcc]/25 shadow-[0_0_34px_rgba(0,255,204,0.08)]"
+                : "border-white/10"
+            }`}
+          >
 
             <div className="mb-3 flex items-center justify-between gap-3">
 
@@ -895,7 +1253,9 @@ export default function LeadPage() {
 
               <div className="rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-[11px] font-medium text-[#00ffcc]">
 
-                Actionable
+                {workflowActionLoading
+                  ? "AI evaluating"
+                  : "Actionable"}
 
               </div>
 
@@ -908,43 +1268,86 @@ export default function LeadPage() {
 
             </div>
 
+            {workflowTaskCount > 0 && (
+
+              <div className="mt-3 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-600">
+
+                {workflowTaskCount} active workflow task
+                {workflowTaskCount === 1
+                  ? ""
+                  : "s"}
+
+              </div>
+
+            )}
+
             <div className="mt-4 grid grid-cols-2 gap-2">
 
               {[
                 {
                   label: "Approve",
                   icon: Check,
+                  action:
+                    "approve" as WorkflowAction,
                 },
                 {
                   label: "Run",
                   icon: Play,
+                  action:
+                    "run" as WorkflowAction,
                 },
                 {
                   label: "Edit",
                   icon: Pencil,
+                  action: null,
                 },
                 {
                   label: "Schedule",
                   icon: CalendarClock,
+                  action: null,
                 },
                 {
                   label: "Escalate",
                   icon: AlertTriangle,
+                  action: null,
                 },
               ].map((item) => {
                 const Icon = item.icon;
+                const isActionLoading =
+                  item.action &&
+                  workflowActionLoading ===
+                    item.action;
 
                 return (
 
                   <button
                     key={item.label}
                     type="button"
-                    className="flex h-9 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 text-xs font-medium text-zinc-300 transition hover:border-[#00ffcc]/30 hover:bg-white/[0.06] hover:text-white"
+                    onClick={() => {
+                      if (item.action) {
+                        void executeAction(
+                          item.action,
+                          lead.recommendation ||
+                            "Continue qualification."
+                        );
+                      }
+                    }}
+                    disabled={
+                      !item.action ||
+                      Boolean(
+                        workflowActionLoading
+                      )
+                    }
+                    className="flex h-9 items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/30 text-xs font-medium text-zinc-300 transition hover:border-[#00ffcc]/30 hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
                   >
 
                     <Icon className="h-3.5 w-3.5" />
 
-                    {item.label}
+                    {isActionLoading
+                      ? item.action === "approve"
+                        ? "Approving"
+                        : "Initiating"
+                      : item.label}
 
                   </button>
 
@@ -952,6 +1355,87 @@ export default function LeadPage() {
               })}
 
             </div>
+
+            {workflowActionStatus && (
+
+              <div
+                className={`message-surface mt-3 rounded-xl px-3 py-2 ${
+                  workflowActionStatus.type ===
+                  "success"
+                    ? "execution-pulse bg-[#00ffcc]/[0.055] shadow-[0_0_22px_rgba(0,255,204,0.07)]"
+                    : "bg-yellow-400/10"
+                }`}
+                title={
+                  workflowActionStatus.detail ||
+                  workflowActionStatus.message
+                }
+              >
+
+                <div className="flex min-w-0 items-center gap-2">
+
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                      workflowActionStatus.type ===
+                      "success"
+                        ? "live-dot live-beacon bg-[#00ffcc]"
+                        : "bg-yellow-300"
+                    }`}
+                  />
+
+                  <span
+                    className={`truncate text-xs font-semibold ${
+                      workflowActionStatus.type ===
+                      "success"
+                        ? "text-[#00ffcc]"
+                        : "text-yellow-300"
+                    }`}
+                  >
+
+                    {workflowActionStatus.type ===
+                    "success"
+                      ? workflowActionStatus.message
+                      : "Action needs review"}
+
+                  </span>
+
+                </div>
+
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+
+                  {workflowActionStatus.type ===
+                  "success" ? (
+
+                    <>
+
+                      <span className="rounded-full bg-black/20 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+
+                        Task queued
+
+                      </span>
+
+                      <span className="rounded-full bg-[#00ffcc]/10 px-2 py-0.5 text-[10px] font-medium text-[#00ffcc]/90">
+
+                        Timeline updated
+
+                      </span>
+
+                    </>
+
+                  ) : (
+
+                    <span className="line-clamp-2 text-[11px] leading-4 text-yellow-200/80">
+
+                      {workflowActionStatus.message}
+
+                    </span>
+
+                  )}
+
+                </div>
+
+              </div>
+
+            )}
 
           </div>
 
@@ -1013,7 +1497,15 @@ export default function LeadPage() {
 
           {/* ACTIVE AGENT */}
 
-          <div className="operational-surface execution-pulse premium-card mb-4 rounded-2xl border border-[#00ffcc]/30 bg-[#00ffcc]/[0.09] p-4 shadow-[0_0_34px_rgba(0,255,204,0.08)]">
+          <div
+            className={`operational-surface execution-pulse premium-card mb-4 rounded-2xl border p-4 ${
+              sending ||
+              workflowActionLoading ||
+              highlightedEventId
+                ? "border-[#00ffcc]/40 bg-[#00ffcc]/[0.12] shadow-[0_0_42px_rgba(0,255,204,0.12)]"
+                : "border-[#00ffcc]/30 bg-[#00ffcc]/[0.09] shadow-[0_0_34px_rgba(0,255,204,0.08)]"
+            }`}
+          >
 
             <div className="text-sm text-[#00ffcc]">
 
@@ -1031,11 +1523,31 @@ export default function LeadPage() {
 
           {/* AI EVENT TIMELINE */}
 
-          <div className="operational-surface premium-card rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+          <div
+            className={`operational-surface premium-card rounded-2xl border bg-white/[0.02] p-4 ${
+              highlightedEventId
+                ? "execution-pulse border-[#00ffcc]/25 shadow-[0_0_42px_rgba(0,255,204,0.08)]"
+                : "border-white/10"
+            }`}
+          >
 
-            <div className="mb-4 text-sm text-zinc-500">
+            <div className="mb-4 flex items-center justify-between gap-3">
 
-              AI Execution Timeline
+              <div className="text-sm text-zinc-500">
+
+                AI Execution Timeline
+
+              </div>
+
+              {highlightedEventId && (
+
+                <div className="rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-[11px] font-medium text-[#00ffcc]">
+
+                  New workflow event
+
+                </div>
+
+              )}
 
             </div>
 
@@ -1062,10 +1574,22 @@ export default function LeadPage() {
                       key={
                         event.id
                       }
-                      className="message-surface execution-pulse relative rounded-xl border border-white/10 bg-black/30 p-3 pl-10 text-zinc-300"
+                      className={`message-surface relative rounded-xl border p-3 pl-10 text-zinc-300 ${
+                        highlightedEventId ===
+                        event.id
+                          ? "execution-pulse border-[#00ffcc]/30 bg-[#00ffcc]/[0.08] shadow-[0_0_34px_rgba(0,255,204,0.1)]"
+                          : "execution-pulse border-white/10 bg-black/30"
+                      }`}
                     >
 
-                      <div className="absolute left-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border border-[#00ffcc]/30 bg-[#00ffcc]/10 text-[10px] font-semibold text-[#00ffcc]">
+                      <div
+                        className={`absolute left-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                          highlightedEventId ===
+                          event.id
+                            ? "live-beacon border-[#00ffcc]/40 bg-[#00ffcc]/20 text-[#00ffcc]"
+                            : "border-[#00ffcc]/30 bg-[#00ffcc]/10 text-[#00ffcc]"
+                        }`}
+                      >
 
                         {index + 1}
 

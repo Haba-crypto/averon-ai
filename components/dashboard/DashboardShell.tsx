@@ -12,7 +12,7 @@ import {
   Target,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type ShellSummary = {
   leadsCount?: number;
@@ -65,6 +65,10 @@ export default function DashboardShell({
   const isDeepWorkspace = pathname.startsWith("/dashboard/leads/");
   const [summary, setSummary] = useState<ShellSummary>({});
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
+  const [updatedEventIds, setUpdatedEventIds] = useState<Set<string>>(
+    new Set()
+  );
+  const knownEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!showExecutionRail) {
@@ -80,15 +84,36 @@ export default function DashboardShell({
 
         const summaryData = await summaryResponse.json();
         const eventsData = await eventsResponse.json();
+        const nextEvents: ExecutionEvent[] = eventsData.events ?? [];
+        const previousEventIds = knownEventIdsRef.current;
+        const nextEventIds = new Set(
+          nextEvents.map((event) => event.id)
+        );
+        const freshEventIds = nextEvents
+          .filter((event) => !previousEventIds.has(event.id))
+          .map((event) => event.id);
 
         setSummary(summaryData.summary ?? {});
-        setEvents(eventsData.events ?? []);
+        setEvents(nextEvents);
+        knownEventIdsRef.current = nextEventIds;
+
+        if (previousEventIds.size > 0 && freshEventIds.length > 0) {
+          setUpdatedEventIds(new Set(freshEventIds));
+          window.setTimeout(() => {
+            setUpdatedEventIds(new Set());
+          }, 5200);
+        }
       } catch (error) {
         console.error(error);
       }
     }
 
     void loadShellState();
+    const interval = window.setInterval(loadShellState, 9000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
   }, [showExecutionRail]);
 
   return (
@@ -193,7 +218,11 @@ export default function DashboardShell({
                 events.slice(0, 7).map((event) => (
                   <div
                     key={event.id}
-                  className="operational-surface premium-card execution-pulse rounded-xl border border-zinc-800 bg-black p-3"
+                    className={`operational-surface premium-card execution-pulse rounded-xl border bg-black p-3 ${
+                      updatedEventIds.has(event.id)
+                        ? "border-[#00ffcc]/30 shadow-[0_0_34px_rgba(0,255,204,0.1)]"
+                        : "border-zinc-800"
+                    }`}
                   >
                     <div className="text-xs font-medium text-zinc-500">
                       {event.agent_name ?? "AI Agent"}
