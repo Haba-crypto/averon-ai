@@ -25,16 +25,19 @@ export async function listTasks({
 export async function completeTask({
   supabase,
   taskId,
+  organizationId,
 }: {
   supabase: SupabaseClient;
   taskId: string;
+  organizationId: string;
 }) {
   const { error } = await supabase
     .from("tasks")
     .update({
       status: "completed",
     })
-    .eq("id", taskId);
+    .eq("id", taskId)
+    .eq("organization_id", organizationId);
 
   if (error) {
     throw error;

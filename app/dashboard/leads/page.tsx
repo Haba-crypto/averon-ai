@@ -1,49 +1,29 @@
 "use client"
 
+import { useEffect, useState } from "react"
+
 import AgentsSection from "@/components/dashboard/AgentsSection"
-import LeadsTable from "@/components/dashboard/LeadsTable"
+import LeadsTable, { type Lead } from "@/components/dashboard/LeadsTable"
 import MemoryLayer from "@/components/dashboard/MemoryLayer"
 
-const leads = [
-  {
-    company: "Tesla",
-    intent: "High",
-    score: 94,
-    status: "Negotiation",
-    agent: "Closer Agent",
-    probability: "82%",
-    signal: "Pricing page revisit",
-  },
-  {
-    company: "Stripe",
-    intent: "Medium",
-    score: 81,
-    status: "AI Outreach",
-    agent: "SDR Agent",
-    probability: "64%",
-    signal: "Reply sentiment positive",
-  },
-  {
-    company: "Notion",
-    intent: "High",
-    score: 91,
-    status: "Research",
-    agent: "Research Agent",
-    probability: "73%",
-    signal: "Intent spike detected",
-  },
-  {
-    company: "OpenAI",
-    intent: "Critical",
-    score: 97,
-    status: "Follow-up",
-    agent: "Closer Agent",
-    probability: "91%",
-    signal: "Decision-maker active",
-  },
-]
-
 export default function LeadsPage() {
+  const [leads, setLeads] = useState<Lead[]>([])
+
+  useEffect(() => {
+    async function loadLeads() {
+      try {
+        const response = await fetch("/api/leads")
+        const data = await response.json()
+
+        setLeads(data.leads || [])
+      } catch (error) {
+        console.error(error)
+      }
+    }
+
+    void loadLeads()
+  }, [])
+
   return (
     <main className="min-h-screen bg-[#050607] text-white relative overflow-hidden">
 

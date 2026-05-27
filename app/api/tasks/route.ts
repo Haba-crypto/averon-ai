@@ -7,7 +7,6 @@ import {
   completeTask,
   listTasks,
 } from "@/lib/application/tasks/tasks-service";
-import { requireApiUser } from "@/lib/auth/api";
 import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
 export async function GET() {
@@ -34,7 +33,8 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    const { supabase, response } = await requireApiUser();
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
     if (response) {
       return response;
@@ -60,6 +60,7 @@ export async function PATCH(req: Request) {
     await completeTask({
       supabase,
       taskId,
+      organizationId,
     });
 
     return NextResponse.json({
