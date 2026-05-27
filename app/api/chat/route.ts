@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 
 import { jsonError } from "@/lib/api/errors";
 import { respondToLeadMessage } from "@/lib/application/conversations/respond-to-lead-message";
-import { requireApiUser } from "@/lib/auth/api";
+import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
 export async function POST(req: Request) {
   try {
-    const { supabase, response } = await requireApiUser();
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
     if (response) {
       return response;
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
       supabase,
       leadId,
       message,
+      organizationId,
     });
 
     return NextResponse.json({

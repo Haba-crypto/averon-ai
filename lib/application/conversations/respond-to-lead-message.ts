@@ -9,6 +9,7 @@ type RespondToLeadMessageInput = {
   supabase: SupabaseClient;
   leadId: string;
   message: string;
+  organizationId: string;
 };
 
 type LeadUpdate = {
@@ -25,18 +26,31 @@ export async function respondToLeadMessage({
   supabase,
   leadId,
   message,
+  organizationId,
 }: RespondToLeadMessageInput) {
-  const { data: lead } = await supabase
+  const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("*")
     .eq("id", leadId)
+    .eq("organization_id", organizationId)
     .single<LeadRecord>();
 
-  await supabase.from("conversations").insert({
-    lead_id: leadId,
-    role: "user",
-    message,
-  });
+  if (leadError) {
+    throw leadError;
+  }
+
+  const { error: userMessageError } = await supabase
+    .from("conversations")
+    .insert({
+      lead_id: leadId,
+      organization_id: organizationId,
+      role: "user",
+      message,
+    });
+
+  if (userMessageError) {
+    throw userMessageError;
+  }
 
   const activeAgent = routeRevenueAgent(message);
   const openai = getOpenAIClient();
@@ -62,43 +76,66 @@ export async function respondToLeadMessage({
     completion.choices?.[0]?.message?.content ||
     "No response";
 
-  await supabase.from("conversations").insert({
-    lead_id: leadId,
-    role: "assistant",
-    message: reply,
-  });
+  const { error: assistantMessageError } = await supabase
+    .from("conversations")
+    .insert({
+      lead_id: leadId,
+      organization_id: organizationId,
+      role: "assistant",
+      message: reply,
+    });
+
+  if (assistantMessageError) {
+    throw assistantMessageError;
+  }
 
   const actions: RevenueAction[] = [];
 
   async function logAction(action: RevenueAction) {
     actions.push(action);
 
-    await supabase.from("ai_events").insert({
+    const { error } = await supabase.from("ai_events").insert({
       lead_id: leadId,
+      organization_id: organizationId,
       type: action.type,
       message: action.message,
     });
+
+    if (error) {
+      throw error;
+    }
   }
 
   const leadUpdate = await analyzeRevenueSignals({
     supabase,
     leadId,
+    organizationId,
     lead,
     message,
     activeAgent,
     logAction,
   });
 
-  await supabase
+  const { error: leadUpdateError } = await supabase
     .from("leads")
     .update(leadUpdate)
-    .eq("id", leadId);
+    .eq("id", leadId)
+    .eq("organization_id", organizationId);
 
-  const { data: updatedLead } = await supabase
+  if (leadUpdateError) {
+    throw leadUpdateError;
+  }
+
+  const { data: updatedLead, error: updatedLeadError } = await supabase
     .from("leads")
     .select("*")
     .eq("id", leadId)
+    .eq("organization_id", organizationId)
     .single<LeadRecord>();
+
+  if (updatedLeadError) {
+    throw updatedLeadError;
+  }
 
   await logAction({
     type: "memory",
@@ -136,6 +173,7 @@ export async function respondToLeadMessage({
 async function analyzeRevenueSignals({
   supabase,
   leadId,
+  organizationId,
   lead,
   message,
   activeAgent,
@@ -143,6 +181,7 @@ async function analyzeRevenueSignals({
 }: {
   supabase: SupabaseClient;
   leadId: string;
+  organizationId: string;
   lead: LeadRecord | null;
   message: string;
   activeAgent: string;
@@ -181,13 +220,18 @@ async function analyzeRevenueSignals({
       message: "Pipeline moved to qualified",
     });
 
-    await supabase.from("tasks").insert({
+    const { error: taskError } = await supabase.from("tasks").insert({
       lead_id: leadId,
+      organization_id: organizationId,
       title: "High-intent follow-up",
       description:
         "Lead requested demo/pricing/integration discussion.",
       priority: "high",
     });
+
+    if (taskError) {
+      throw taskError;
+    }
 
     await logAction({
       type: "task",
