@@ -1,54 +1,42 @@
-import { NextResponse }
-from "next/server";
+import { NextResponse } from "next/server";
 
-import {
-  createClient,
-} from "@supabase/supabase-js";
+import { jsonError } from "@/lib/api/errors";
+import { listAiEventsForLead } from "@/lib/application/events/list-ai-events";
+import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
-const supabase =
-  createClient(
-    process.env
-      .NEXT_PUBLIC_SUPABASE_URL!,
-    process.env
-      .SUPABASE_SERVICE_ROLE_KEY!
-  );
+export async function GET(req: Request) {
+  try {
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
-export async function GET(
-  req: Request
-) {
+    if (response) {
+      return response;
+    }
 
-  const {
-    searchParams,
-  } = new URL(req.url);
+    const { searchParams } = new URL(req.url);
+    const leadId = searchParams.get("leadId");
 
-  const leadId =
-    searchParams.get(
-      "leadId"
-    );
+    if (!leadId) {
+      return NextResponse.json(
+        {
+          error: "Lead ID required",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
-  const {
-    data,
-  } = await supabase
-    .from("ai_events")
-    .select("*")
-    .eq(
-      "lead_id",
-      leadId
-    )
-    .order(
-      "created_at",
-      {
-        ascending:
-          false,
-      }
-    )
-    .limit(50);
+    const events = await listAiEventsForLead({
+      supabase,
+      leadId,
+      organizationId,
+    });
 
-  return NextResponse.json({
-
-    events:
-      data || [],
-
-  });
-
+    return NextResponse.json({
+      events,
+    });
+  } catch (error: unknown) {
+    return jsonError(error);
+  }
 }

@@ -5,53 +5,57 @@ import {
   useState,
 } from "react";
 
-import { supabase } from "@/lib/supabase/client";
+type Task = {
+  id: string;
+  title?: string | null;
+  task?: string | null;
+  description?: string | null;
+  priority?: string | null;
+  status?: string | null;
+};
 
 export default function TasksPage() {
 
   const [tasks, setTasks] =
-    useState<any[]>([]);
-
-  useEffect(() => {
-
-    fetchTasks();
-
-  }, []);
+    useState<Task[]>([]);
 
   async function fetchTasks() {
+    const response = await fetch("/api/tasks");
+    const data = await response.json();
 
-    const { data } =
-      await supabase
-        .from("tasks")
-        .select("*")
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        );
-
-    if (data) {
-
-      setTasks(data);
+    if (data.tasks) {
+      setTasks(data.tasks);
 
     }
 
   }
 
+  useEffect(() => {
+
+    async function initTasks() {
+      await fetchTasks();
+    }
+
+    void initTasks();
+
+  }, []);
+
   async function completeTask(
     taskId: string
   ) {
 
-    await supabase
-      .from("tasks")
-      .update({
-        status:
-          "completed",
-      })
-      .eq("id", taskId);
+    await fetch("/api/tasks", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        taskId,
+        status: "completed",
+      }),
+    });
 
-    fetchTasks();
+    await fetchTasks();
 
   }
 

@@ -1,82 +1,31 @@
-export const dynamic =
-  "force-dynamic";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 
-import { supabaseServer } from "@/lib/supabase/server";
+import { jsonError } from "@/lib/api/errors";
+import { listRecentTaskEvents } from "@/lib/application/events/list-recent-task-events";
+import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
 export async function GET() {
-
   try {
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
-    const { data, error } =
-      await supabaseServer
-        .from("tasks")
-        .select("*")
-        .order(
-          "created_at",
-          {
-            ascending: false,
-          }
-        )
-        .limit(20);
-
-    if (error) {
-
-      return NextResponse.json(
-        {
-          error:
-            error.message,
-        },
-        {
-          status: 500,
-        }
-      );
-
+    if (response) {
+      return response;
     }
 
-    const events =
-      (data || []).map(
-        (task) => ({
-
-          id: task.id,
-
-          agent_name:
-            task.assigned_agent,
-
-          event:
-            task.task,
-
-          created_at:
-            task.created_at,
-
-        })
-      );
-
-    return NextResponse.json({
-
-      events,
-
+    const events = await listRecentTaskEvents({
+      supabase,
+      organizationId,
     });
 
-  } catch (error: any) {
+    return NextResponse.json({
+      events,
+    });
+  } catch (error: unknown) {
+    console.error("EVENTS API ERROR:", error);
 
-    console.error(
-      "EVENTS API ERROR:",
-      error
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          error?.message ||
-          "Something went wrong",
-      },
-      {
-        status: 500,
-      }
-    );
-
+    return jsonError(error);
   }
-
 }

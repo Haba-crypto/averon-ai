@@ -1,0 +1,262 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import { routeRevenueAgent } from "@/lib/ai/agents/revenue-router";
+import { getOpenAIClient } from "@/lib/ai/openai";
+import { buildRevenueChatPrompt } from "@/lib/ai/prompts/revenue-chat";
+import type { LeadRecord, RevenueAction } from "@/lib/domain/leads/types";
+
+type RespondToLeadMessageInput = {
+  supabase: SupabaseClient;
+  leadId: string;
+  message: string;
+};
+
+type LeadUpdate = {
+  intent_score: number;
+  status: string;
+  ai_notes: string;
+  urgency: string;
+  recommendation: string;
+  deal_risk: string;
+  close_probability: number;
+};
+
+export async function respondToLeadMessage({
+  supabase,
+  leadId,
+  message,
+}: RespondToLeadMessageInput) {
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("id", leadId)
+    .single<LeadRecord>();
+
+  await supabase.from("conversations").insert({
+    lead_id: leadId,
+    role: "user",
+    message,
+  });
+
+  const activeAgent = routeRevenueAgent(message);
+  const openai = getOpenAIClient();
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    messages: [
+      {
+        role: "system",
+        content: buildRevenueChatPrompt({
+          activeAgent,
+          lead,
+        }),
+      },
+      {
+        role: "user",
+        content: message,
+      },
+    ],
+  });
+
+  const reply =
+    completion.choices?.[0]?.message?.content ||
+    "No response";
+
+  await supabase.from("conversations").insert({
+    lead_id: leadId,
+    role: "assistant",
+    message: reply,
+  });
+
+  const actions: RevenueAction[] = [];
+
+  async function logAction(action: RevenueAction) {
+    actions.push(action);
+
+    await supabase.from("ai_events").insert({
+      lead_id: leadId,
+      type: action.type,
+      message: action.message,
+    });
+  }
+
+  const leadUpdate = await analyzeRevenueSignals({
+    supabase,
+    leadId,
+    lead,
+    message,
+    activeAgent,
+    logAction,
+  });
+
+  await supabase
+    .from("leads")
+    .update(leadUpdate)
+    .eq("id", leadId);
+
+  const { data: updatedLead } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("id", leadId)
+    .single<LeadRecord>();
+
+  await logAction({
+    type: "memory",
+    message: "AI memory updated",
+  });
+
+  await logAction({
+    type: "agent",
+    message: `${activeAgent} active`,
+  });
+
+  await logAction({
+    type: "urgency",
+    message: `Urgency level: ${leadUpdate.urgency}`,
+  });
+
+  await logAction({
+    type: "probability",
+    message: `Close probability: ${leadUpdate.close_probability}%`,
+  });
+
+  await logAction({
+    type: "recommendation",
+    message: leadUpdate.recommendation,
+  });
+
+  return {
+    reply,
+    activeAgent,
+    lead: updatedLead,
+    actions,
+  };
+}
+
+async function analyzeRevenueSignals({
+  supabase,
+  leadId,
+  lead,
+  message,
+  activeAgent,
+  logAction,
+}: {
+  supabase: SupabaseClient;
+  leadId: string;
+  lead: LeadRecord | null;
+  message: string;
+  activeAgent: string;
+  logAction: (action: RevenueAction) => Promise<void>;
+}): Promise<LeadUpdate> {
+  const lower = message.toLowerCase();
+
+  let intentScore = lead?.intent_score ?? 0;
+  let status = lead?.status ?? "new";
+  let aiNotes = lead?.ai_notes ?? "";
+  let urgency = lead?.urgency ?? "low";
+  let recommendation =
+    lead?.recommendation ?? "Continue qualification.";
+  let dealRisk = lead?.deal_risk ?? "low";
+  let closeProbability = lead?.close_probability ?? 10;
+
+  if (
+    lower.includes("demo") ||
+    lower.includes("pricing") ||
+    lower.includes("integration")
+  ) {
+    intentScore += 15;
+    closeProbability += 12;
+    urgency = "high";
+    status = "qualified";
+    recommendation = "Schedule enterprise demo immediately.";
+    aiNotes += "\nDetected high buying intent.";
+
+    await logAction({
+      type: "intent",
+      message: "Detected high buying intent",
+    });
+
+    await logAction({
+      type: "pipeline",
+      message: "Pipeline moved to qualified",
+    });
+
+    await supabase.from("tasks").insert({
+      lead_id: leadId,
+      title: "High-intent follow-up",
+      description:
+        "Lead requested demo/pricing/integration discussion.",
+      priority: "high",
+    });
+
+    await logAction({
+      type: "task",
+      message: "Created high-intent follow-up task",
+    });
+  }
+
+  if (
+    lower.includes("enterprise") ||
+    lower.includes("team") ||
+    lower.includes("scale")
+  ) {
+    intentScore += 10;
+    closeProbability += 8;
+    urgency = "medium";
+    recommendation = "Push enterprise expansion conversation.";
+    aiNotes += "\nEnterprise expansion potential detected.";
+
+    await logAction({
+      type: "enterprise",
+      message: "Enterprise expansion potential detected",
+    });
+  }
+
+  if (
+    lower.includes("later") ||
+    lower.includes("not now") ||
+    lower.includes("budget")
+  ) {
+    dealRisk = "medium";
+    closeProbability -= 10;
+    recommendation = "Address timing and budget objections.";
+
+    await logAction({
+      type: "risk",
+      message: "Potential deal risk detected",
+    });
+  }
+
+  if (activeAgent === "Research Agent") {
+    aiNotes += "\nResearch agent activated.";
+
+    await logAction({
+      type: "research",
+      message: "Research agent analyzing company intelligence",
+    });
+  }
+
+  if (activeAgent === "Customer Success Agent") {
+    recommendation = "Focus on onboarding and retention strategy.";
+
+    await logAction({
+      type: "cs",
+      message: "Customer Success workflow activated",
+    });
+  }
+
+  closeProbability = Math.max(
+    5,
+    Math.min(closeProbability, 95)
+  );
+
+  return {
+    intent_score: intentScore,
+    status,
+    ai_notes: aiNotes,
+    urgency,
+    recommendation,
+    deal_risk: dealRisk,
+    close_probability: closeProbability,
+  };
+}

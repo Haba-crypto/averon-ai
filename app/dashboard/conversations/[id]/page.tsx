@@ -1,14 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+type Lead = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  status?: string | null;
+  intent_score?: number | null;
+  ai_notes?: string | null;
+};
+
+type ConversationMessage = {
+  role?: string | null;
+  message?: string | null;
+};
 
 export default function LeadWorkspacePage() {
 
   const [lead, setLead] =
-    useState<any>(null);
+    useState<Lead | null>(null);
 
   const [messages, setMessages] =
-    useState<any[]>([]);
+    useState<ConversationMessage[]>([]);
 
   const [input, setInput] =
     useState("");
@@ -16,7 +30,8 @@ export default function LeadWorkspacePage() {
   const [loading, setLoading] =
     useState(false);
 
-  async function loadLead() {
+  const loadLead =
+    useCallback(async () => {
 
     try {
 
@@ -46,9 +61,10 @@ export default function LeadWorkspacePage() {
 
     }
 
-  }
+  }, []);
 
-  async function loadMessages() {
+  const loadMessages =
+    useCallback(async () => {
 
     try {
 
@@ -75,7 +91,7 @@ export default function LeadWorkspacePage() {
 
     }
 
-  }
+  }, []);
 
   useEffect(() => {
 
@@ -89,7 +105,7 @@ export default function LeadWorkspacePage() {
 
     init();
 
-  }, []);
+  }, [loadLead, loadMessages]);
 
   async function sendMessage() {
 

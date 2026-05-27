@@ -5,13 +5,19 @@ import { useEffect, useState } from "react";
 const DEMO_LEAD_ID =
   "8741d6e7-d508-461a-a147-f32f7aef6b0d";
 
+type ConversationMessage = {
+  role?: string | null;
+  message?: string | null;
+  classification?: string | null;
+};
+
 export default function ConversationsPage() {
 
   const [message, setMessage] =
     useState("");
 
   const [messages, setMessages] =
-    useState<any[]>([]);
+    useState<ConversationMessage[]>([]);
 
   const [loading, setLoading] =
     useState(false);
@@ -45,7 +51,11 @@ export default function ConversationsPage() {
 
   useEffect(() => {
 
-    loadMessages();
+    async function initMessages() {
+      await loadMessages();
+    }
+
+    void initMessages();
 
   }, []);
 

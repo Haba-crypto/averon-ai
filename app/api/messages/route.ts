@@ -1,86 +1,46 @@
-export const dynamic =
-  "force-dynamic";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 
-import { supabaseServer } from "@/lib/supabase/server";
+import { jsonError } from "@/lib/api/errors";
+import { listMessagesForLead } from "@/lib/application/conversations/list-messages";
+import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
-export async function GET(
-  req: Request
-) {
-
+export async function GET(req: Request) {
   try {
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
-    const { searchParams } =
-      new URL(req.url);
+    if (response) {
+      return response;
+    }
 
-    const leadId =
-      searchParams.get(
-        "leadId"
-      );
+    const { searchParams } = new URL(req.url);
+    const leadId = searchParams.get("leadId");
 
     if (!leadId) {
-
       return NextResponse.json(
         {
-          error:
-            "Lead ID required",
+          error: "Lead ID required",
         },
         {
           status: 400,
         }
       );
-
     }
 
-    const { data, error } =
-      await supabaseServer
-        .from("conversations")
-        .select("*")
-        .eq("lead_id", leadId)
-        .order("created_at", {
-          ascending: true,
-        });
-
-    if (error) {
-
-      return NextResponse.json(
-        {
-          error:
-            error.message,
-        },
-        {
-          status: 500,
-        }
-      );
-
-    }
-
-    return NextResponse.json({
-
-      messages:
-        data || [],
-
+    const messages = await listMessagesForLead({
+      supabase,
+      leadId,
+      organizationId,
     });
 
-  } catch (error: any) {
+    return NextResponse.json({
+      messages,
+    });
+  } catch (error: unknown) {
+    console.error("MESSAGES API ERROR:", error);
 
-    console.error(
-      "MESSAGES API ERROR:",
-      error
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          error?.message ||
-          "Something went wrong",
-      },
-      {
-        status: 500,
-      }
-    );
-
+    return jsonError(error);
   }
-
 }

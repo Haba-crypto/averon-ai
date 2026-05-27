@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
+import { getOpenAIClient } from "@/lib/ai/openai";
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
+    const openai = getOpenAIClient();
 
     const completion =
       await openai.chat.completions.create({
@@ -43,16 +45,9 @@ export async function GET() {
 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-
-      success: false,
-
-      error:
-        error.message,
-
-    });
+    return jsonError(error);
 
   }
 

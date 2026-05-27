@@ -1,27 +1,30 @@
 import { NextResponse } from "next/server";
 
-import { createClient } from "@supabase/supabase-js";
-
-import OpenAI from "openai";
-
 import { Resend } from "resend";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { requireApiUser } from "@/lib/auth/api";
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
+import { getOpenAIClient } from "@/lib/ai/openai";
 
 const resend = new Resend(
   process.env.RESEND_API_KEY
 );
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
+    const openai = getOpenAIClient();
+
+    const { supabase, response: authResponse } =
+      await requireApiUser();
+
+    if (authResponse) {
+      return authResponse;
+    }
 
     // LOAD LEADS FROM SUPABASE
 
@@ -87,8 +90,7 @@ Book a call for AI automation services.
 
       // SEND EMAIL
 
-      const response =
-        await resend.emails.send({
+      await resend.emails.send({
 
           from:
             "AVERON <onboarding@resend.dev>",
@@ -141,16 +143,9 @@ Book a call for AI automation services.
 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-
-      success: false,
-
-      error:
-        error.message,
-
-    });
+    return jsonError(error);
 
   }
 

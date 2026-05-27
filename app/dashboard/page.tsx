@@ -5,8 +5,6 @@ import {
   useState,
 } from "react";
 
-import { supabase } from "@/lib/supabase/client";
-
 const agents = [
 
   {
@@ -49,44 +47,21 @@ const activities = [
 
 ];
 
+type DashboardStat = {
+  title: string;
+  value: string;
+  growth: string;
+};
+
 export default function DashboardPage() {
 
   const [stats, setStats] =
-    useState<any[]>([]);
-
-  useEffect(() => {
-
-    loadDashboard();
-
-  }, []);
+    useState<DashboardStat[]>([]);
 
   async function loadDashboard() {
-
-    const { count: leadsCount } =
-      await supabase
-        .from("leads")
-        .select("*", {
-          count: "exact",
-          head: true,
-        });
-
-    const { count: tasksCount } =
-      await supabase
-        .from("tasks")
-        .select("*", {
-          count: "exact",
-          head: true,
-        });
-
-    const {
-      count: conversationsCount,
-    } =
-      await supabase
-        .from("conversations")
-        .select("*", {
-          count: "exact",
-          head: true,
-        });
+    const response = await fetch("/api/dashboard/summary");
+    const data = await response.json();
+    const summary = data.summary ?? {};
 
     setStats([
 
@@ -107,7 +82,7 @@ export default function DashboardPage() {
 
         value:
           String(
-            leadsCount || 0
+            summary.leadsCount || 0
           ),
 
         growth:
@@ -120,7 +95,7 @@ export default function DashboardPage() {
 
         value:
           String(
-            tasksCount || 0
+            summary.tasksCount || 0
           ),
 
         growth:
@@ -133,7 +108,7 @@ export default function DashboardPage() {
 
         value:
           String(
-            conversationsCount || 0
+            summary.conversationsCount || 0
           ),
 
         growth:
@@ -143,6 +118,16 @@ export default function DashboardPage() {
     ]);
 
   }
+
+  useEffect(() => {
+
+    async function initDashboard() {
+      await loadDashboard();
+    }
+
+    void initDashboard();
+
+  }, []);
 
   return (
 

@@ -1,21 +1,24 @@
 import { NextResponse } from "next/server";
 
-import OpenAI from "openai";
-
-import { createClient } from "@supabase/supabase-js";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireApiUser } from "@/lib/auth/api";
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
+import { getOpenAIClient } from "@/lib/ai/openai";
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
+    const openai = getOpenAIClient();
+
+    const { supabase, response } =
+      await requireApiUser();
+
+    if (response) {
+      return response;
+    }
 
     // DEMO INBOUND REPLY
 
@@ -128,16 +131,9 @@ Only return the classification.
 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-
-      success: false,
-
-      error:
-        error.message,
-
-    });
+    return jsonError(error);
 
   }
 

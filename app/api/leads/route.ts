@@ -1,64 +1,31 @@
-export const dynamic =
-  "force-dynamic";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 
-import { supabaseServer } from "@/lib/supabase/server";
+import { jsonError } from "@/lib/api/errors";
+import { listLeads } from "@/lib/application/leads/list-leads";
+import { requireApiOrganizationContext } from "@/lib/auth/organization";
 
 export async function GET() {
-
   try {
+    const { supabase, response, organizationId } =
+      await requireApiOrganizationContext();
 
-    const { data, error } =
-      await supabaseServer
-        .from("leads")
-        .select("*")
-        .order(
-          "intent_score",
-          {
-            ascending: false,
-          }
-        );
-
-    if (error) {
-
-      return NextResponse.json(
-        {
-          error:
-            error.message,
-        },
-        {
-          status: 500,
-        }
-      );
-
+    if (response) {
+      return response;
     }
 
-    return NextResponse.json({
-
-      leads:
-        data || [],
-
+    const leads = await listLeads({
+      supabase,
+      organizationId,
     });
 
-  } catch (error: any) {
+    return NextResponse.json({
+      leads,
+    });
+  } catch (error: unknown) {
+    console.error("LEADS API ERROR:", error);
 
-    console.error(
-      "LEADS API ERROR:",
-      error
-    );
-
-    return NextResponse.json(
-      {
-        error:
-          error?.message ||
-          "Something went wrong",
-      },
-      {
-        status: 500,
-      }
-    );
-
+    return jsonError(error);
   }
-
 }

@@ -1,21 +1,31 @@
 import { NextResponse } from "next/server";
 
-import OpenAI from "openai";
+import { requireApiUser } from "@/lib/auth/api";
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
+import { parseJsonObject } from "@/lib/ai/json";
+import { getOpenAIClient } from "@/lib/ai/openai";
 
-import { createClient } from "@supabase/supabase-js";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+type AiDecision = {
+  status?: string;
+  intent_score?: number;
+  notes?: string;
+};
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
+    const openai = getOpenAIClient();
+
+    const { supabase, response } =
+      await requireApiUser();
+
+    if (response) {
+      return response;
+    }
 
     // DEMO LEAD
 
@@ -77,7 +87,10 @@ Example:
         .message.content || "{}";
 
     const decision =
-      JSON.parse(rawDecision);
+      parseJsonObject<AiDecision>(
+        rawDecision,
+        {}
+      );
 
     // UPDATE LEAD
 
@@ -113,16 +126,9 @@ Example:
 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-
-      success: false,
-
-      error:
-        error.message,
-
-    });
+    return jsonError(error);
 
   }
 

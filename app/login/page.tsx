@@ -4,11 +4,12 @@ import { useState } from "react";
 
 import { useRouter } from "next/navigation";
 
-import { supabase } from "@/lib/supabase/client";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
 
   const router = useRouter();
+  const supabase = createClient();
 
   const [email, setEmail] =
     useState("");
@@ -63,18 +64,21 @@ export default function LoginPage() {
 
       router.refresh();
 
-    } catch (err: any) {
+    } catch (err: unknown) {
 
       console.log(err);
 
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Login failed";
+
       alert(
-        err?.message ||
-        "Login failed"
+        message
       );
 
       setError(
-        err?.message ||
-        "Login failed"
+        message
       );
 
     } finally {

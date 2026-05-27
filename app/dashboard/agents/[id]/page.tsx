@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function AgentPage() {
   const [logs, setLogs] = useState<
     string[]
   >([]);
 
-  const terminalLogs = [
+  const terminalLogs = useMemo(() => [
     "[AVERON] Agent initialized...",
     "Analyzing lead behavior patterns...",
     "Extracting buying intent signals...",
@@ -28,7 +28,7 @@ export default function AgentPage() {
     "Lead status changed → Qualified",
     "AI confidence score increased",
     "Waiting for next task...",
-  ];
+  ], []);
 
   useEffect(() => {
     let index = 0;
@@ -53,7 +53,7 @@ export default function AgentPage() {
 
     return () =>
       clearInterval(interval);
-  }, []);
+  }, [terminalLogs]);
 
   return (
     <div className="p-10 bg-black min-h-screen text-white overflow-hidden">

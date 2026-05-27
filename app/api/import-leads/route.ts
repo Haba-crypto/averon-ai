@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { requireApiUser } from "@/lib/auth/api";
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
+    const { supabase, response } =
+      await requireApiUser();
+
+    if (response) {
+      return response;
+    }
 
     // DEMO IMPORT DATA
 
@@ -112,16 +118,9 @@ export async function GET() {
 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-
-      success: false,
-
-      error:
-        error.message,
-
-    });
+    return jsonError(error);
 
   }
 

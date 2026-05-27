@@ -2,11 +2,17 @@ import { NextResponse } from "next/server";
 
 import { Resend } from "resend";
 
+import { jsonError, methodNotAllowed } from "@/lib/api/errors";
+
 const resend = new Resend(
   process.env.RESEND_API_KEY
 );
 
 export async function GET() {
+  return methodNotAllowed("GET");
+}
+
+export async function POST() {
 
   try {
 
@@ -35,13 +41,9 @@ export async function GET() {
       response,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
 
-    return NextResponse.json({
-      success: false,
-      error:
-        error?.message,
-    });
+    return jsonError(error);
 
   }
 
