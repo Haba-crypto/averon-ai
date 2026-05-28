@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  type Language,
+  translate,
+  useLanguage,
+} from "@/lib/i18n/language";
+
 type ShellSummary = {
   leadsCount?: number;
   tasksCount?: number;
@@ -58,7 +64,7 @@ type OperationalStreamItem = {
   detail: string;
   interpretation: string;
   time: string;
-  group: "Now" | "Today" | "Earlier";
+  group: string;
   createdAt: string;
   tone: StreamTone;
   persistence: "high" | "normal" | "low";
@@ -66,31 +72,31 @@ type OperationalStreamItem = {
 
 const navigation = [
   {
-    label: "Mission Control",
+    labelKey: "missionControl",
     href: "/dashboard",
     icon: LayoutDashboard,
   },
   {
-    label: "Leads",
+    labelKey: "leads",
     href: "/dashboard/leads",
     icon: Users,
   },
   {
-    label: "Conversations",
+    labelKey: "conversations",
     href: "/dashboard/conversations",
     icon: MessageSquare,
   },
   {
-    label: "Tasks",
+    labelKey: "executionQueue",
     href: "/dashboard/tasks",
     icon: CheckCircle2,
   },
   {
-    label: "AI Agents",
+    labelKey: "aiAgents",
     href: "/dashboard/agents",
     icon: Bot,
   },
-];
+] as const;
 
 function getHoursSince(timestamp?: string | null) {
   if (!timestamp) {
@@ -105,9 +111,12 @@ function getHoursSince(timestamp?: string | null) {
   );
 }
 
-function getRelativeTime(timestamp?: string | null) {
+function getRelativeTime(
+  timestamp?: string | null,
+  language: Language = "en"
+) {
   if (!timestamp) {
-    return "recently";
+    return translate(language, "recently", "недавно");
   }
 
   const minutes = Math.max(
@@ -120,72 +129,82 @@ function getRelativeTime(timestamp?: string | null) {
   );
 
   if (minutes < 1) {
-    return "just now";
+    return translate(language, "just now", "только что");
   }
 
   if (minutes < 60) {
-    return `${minutes}m ago`;
+    return translate(
+      language,
+      `${minutes}m ago`,
+      `${minutes} мин назад`
+    );
   }
 
   if (minutes < 24 * 60) {
-    return `${Math.floor(minutes / 60)}h ago`;
+    const hours = Math.floor(minutes / 60);
+
+    return translate(language, `${hours}h ago`, `${hours} ч назад`);
   }
 
   if (minutes < 72 * 60) {
-    return "recently";
+    return translate(language, "recently", "недавно");
   }
 
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat(language === "ru" ? "ru" : "en", {
     month: "short",
     day: "numeric",
   }).format(new Date(timestamp));
 }
 
-function getTimeGroup(timestamp?: string | null) {
+function getTimeGroup(
+  timestamp?: string | null,
+  language: Language = "en"
+) {
   const hours = getHoursSince(timestamp);
 
   if (hours < 0.2) {
-    return "Now";
+    return translate(language, "Now", "Сейчас");
   }
 
   if (hours < 24) {
-    return "Today";
+    return translate(language, "Today", "Сегодня");
   }
 
-  return "Earlier";
+  return translate(language, "Earlier", "Ранее");
 }
 
-function getLeadName(lead?: Lead) {
+function getLeadName(lead?: Lead, language: Language = "en") {
   return (
     lead?.company ||
     lead?.name ||
     lead?.email ||
-    "Revenue path"
+    translate(language, "Revenue path", "Сделка")
   );
 }
 
-function getTaskTitle(task: Task) {
-  return task.title || task.task || "Work item";
+function getTaskTitle(task: Task, language: Language = "en") {
+  return task.title || task.task || translate(language, "Work item", "Задача");
 }
 
 function normalizeAIEvent(
   event: AIEvent,
-  lead?: Lead
+  lead?: Lead,
+  language: Language = "en"
 ): OperationalStreamItem {
   const type = event.type?.toLowerCase() || "";
-  const leadName = getLeadName(lead);
+  const leadName = getLeadName(lead, language);
   const createdAt =
     event.created_at || new Date().toISOString();
 
   if (type === "task_escalated") {
     return {
       id: `ai:${event.id}`,
-      title: "This deal now needs human help",
-      detail: `${leadName}: a person must unblock the next step.`,
+      title: translate(language, "This deal now needs human help", "Этой сделке нужна помощь человека"),
+      detail: translate(language, `${leadName}: a person must unblock the next step.`, `${leadName}: человеку нужно разблокировать следующий шаг.`),
       interpretation:
-        "AVERON can keep the deal organized, but a person is now the blocker.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "AVERON can keep the deal organized, but a person is now the blocker.", "AVERON держит сделку в порядке, но сейчас ее блокирует человек."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "critical",
       persistence: "high",
@@ -195,12 +214,12 @@ function normalizeAIEvent(
   if (type === "task_blocked") {
     return {
       id: `ai:${event.id}`,
-      title: "Work is stuck",
-      detail: `${leadName}: the next step is blocked.`,
+      title: translate(language, "Work is stuck", "Работа застряла"),
+      detail: translate(language, `${leadName}: the next step is blocked.`, `${leadName}: следующий шаг заблокирован.`),
       interpretation:
-        "This deal will not move until the blocker is cleared.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "This deal will not move until the blocker is cleared.", "Сделка не сдвинется, пока блокер не снят."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "critical",
       persistence: "high",
@@ -210,12 +229,12 @@ function normalizeAIEvent(
   if (type === "task_approved") {
     return {
       id: `ai:${event.id}`,
-      title: "A person approved the next step",
-      detail: `${leadName}: AVERON can move the work forward again.`,
+      title: translate(language, "A person approved the next step", "Следующий шаг одобрен"),
+      detail: translate(language, `${leadName}: AVERON can move the work forward again.`, `${leadName}: AVERON снова может двигать работу вперед.`),
       interpretation:
-        "The decision gate is cleared, so execution can resume.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "The decision gate is cleared, so execution can resume.", "Решение принято, выполнение может продолжаться."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "active",
       persistence: "normal",
@@ -228,12 +247,12 @@ function normalizeAIEvent(
   ) {
     return {
       id: `ai:${event.id}`,
-      title: "AVERON resumed the work",
-      detail: `${leadName}: the approved step is moving again.`,
+      title: translate(language, "AVERON resumed the work", "AVERON возобновил работу"),
+      detail: translate(language, `${leadName}: the approved step is moving again.`, `${leadName}: одобренный шаг снова выполняется.`),
       interpretation:
-        "An approved decision is now turning into action.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "An approved decision is now turning into action.", "Одобренное решение превращается в действие."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "active",
       persistence: "normal",
@@ -243,12 +262,12 @@ function normalizeAIEvent(
   if (type === "operational_routing") {
     return {
       id: `ai:${event.id}`,
-      title: "AVERON changed the work route",
-      detail: event.message || `${leadName}: operational routing updated.`,
+      title: translate(language, "AVERON changed the work route", "AVERON изменил маршрут работы"),
+      detail: event.message || translate(language, `${leadName}: operational routing updated.`, `${leadName}: маршрут работы обновлен.`),
       interpretation:
-        "Ownership changed because this deal needs a different next step.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "Ownership changed because this deal needs a different next step.", "Ответственный изменился, потому что сделке нужен другой следующий шаг."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "active",
       persistence: "normal",
@@ -258,12 +277,12 @@ function normalizeAIEvent(
   if (type === "task_executed") {
     return {
       id: `ai:${event.id}`,
-      title: "Work completed",
-      detail: `${leadName}: the execution step is done.`,
+      title: translate(language, "Work completed", "Работа завершена"),
+      detail: translate(language, `${leadName}: the execution step is done.`, `${leadName}: шаг выполнения завершен.`),
       interpretation:
-        "This lowers the backlog and reduces pressure.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "This lowers the backlog and reduces pressure.", "Это уменьшает очередь и снижает нагрузку."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "passive",
       persistence: "low",
@@ -276,12 +295,12 @@ function normalizeAIEvent(
   ) {
     return {
       id: `ai:${event.id}`,
-      title: "Old work was moved out of focus",
-      detail: `${leadName}: outdated context was reduced.`,
+      title: translate(language, "Old work was moved out of focus", "Старая работа убрана из фокуса"),
+      detail: translate(language, `${leadName}: outdated context was reduced.`, `${leadName}: устаревший контекст скрыт.`),
       interpretation:
-        "AVERON is keeping attention on current work.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "AVERON is keeping attention on current work.", "AVERON удерживает внимание на текущей работе."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "passive",
       persistence: "low",
@@ -290,12 +309,12 @@ function normalizeAIEvent(
 
   return {
     id: `ai:${event.id}`,
-    title: "Work state changed",
-    detail: event.message || `${leadName}: workflow state changed.`,
+    title: translate(language, "Work state changed", "Состояние работы изменилось"),
+    detail: event.message || translate(language, `${leadName}: workflow state changed.`, `${leadName}: состояние процесса изменилось.`),
     interpretation:
-      "AVERON detected a change that may affect what should happen next.",
-    time: getRelativeTime(createdAt),
-    group: getTimeGroup(createdAt),
+      translate(language, "AVERON detected a change that may affect what should happen next.", "AVERON заметил изменение, которое может повлиять на следующий шаг."),
+    time: getRelativeTime(createdAt, language),
+    group: getTimeGroup(createdAt, language),
     createdAt,
     tone: "active",
     persistence: "normal",
@@ -304,15 +323,16 @@ function normalizeAIEvent(
 
 function normalizeTaskEvent(
   task: Task,
-  lead?: Lead
+  lead?: Lead,
+  language: Language = "en"
 ): OperationalStreamItem {
   const status = task.status || "pending";
   const createdAt =
     task.updated_at ||
     task.created_at ||
     new Date().toISOString();
-  const leadName = getLeadName(lead);
-  const taskTitle = getTaskTitle(task);
+  const leadName = getLeadName(lead, language);
+  const taskTitle = getTaskTitle(task, language);
   const stalled =
     status === "blocked" ||
     (status === "pending" && getHoursSince(createdAt) > 24) ||
@@ -321,12 +341,12 @@ function normalizeTaskEvent(
   if (status === "escalated") {
     return {
       id: `task:${task.id}:escalated`,
-      title: "People may become overloaded",
+      title: translate(language, "People may become overloaded", "Люди могут быть перегружены"),
       detail: `${leadName}: ${taskTitle}`,
       interpretation:
-        "This item now depends on human capacity to move forward.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "This item now depends on human capacity to move forward.", "Эта задача теперь зависит от доступности человека."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "critical",
       persistence: "high",
@@ -336,12 +356,12 @@ function normalizeTaskEvent(
   if (stalled) {
     return {
       id: `task:${task.id}:stalled`,
-      title: "This deal is waiting too long",
+      title: translate(language, "This deal is waiting too long", "Сделка ждет слишком долго"),
       detail: `${leadName}: ${taskTitle}`,
       interpretation:
-        "The work has aged without enough progress.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "The work has aged without enough progress.", "Работа долго не продвигается."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "critical",
       persistence: "high",
@@ -351,12 +371,12 @@ function normalizeTaskEvent(
   if (status === "approved") {
     return {
       id: `task:${task.id}:approved`,
-      title: "AVERON is now carrying this work",
+      title: translate(language, "AVERON is now carrying this work", "AVERON ведет эту работу"),
       detail: `${leadName}: ${taskTitle}`,
       interpretation:
-        "The item moved from waiting for approval into active work.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "The item moved from waiting for approval into active work.", "Задача перешла из ожидания одобрения в активную работу."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "active",
       persistence: "normal",
@@ -366,12 +386,12 @@ function normalizeTaskEvent(
   if (status === "pending") {
     return {
       id: `task:${task.id}:pending`,
-      title: "This item is waiting for approval",
+      title: translate(language, "This item is waiting for approval", "Задача ждет одобрения"),
       detail: `${leadName}: ${taskTitle}`,
       interpretation:
-        "AVERON is ready, but a person must approve the next step.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "AVERON is ready, but a person must approve the next step.", "AVERON готов, но человек должен одобрить следующий шаг."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "active",
       persistence: "normal",
@@ -381,12 +401,12 @@ function normalizeTaskEvent(
   if (status === "completed") {
     return {
       id: `task:${task.id}:completed`,
-      title: "Pressure reduced",
+      title: translate(language, "Pressure reduced", "Нагрузка снизилась"),
       detail: `${leadName}: ${taskTitle}`,
       interpretation:
-        "Finished work lowers the backlog.",
-      time: getRelativeTime(createdAt),
-      group: getTimeGroup(createdAt),
+        translate(language, "Finished work lowers the backlog.", "Завершенная работа уменьшает очередь."),
+      time: getRelativeTime(createdAt, language),
+      group: getTimeGroup(createdAt, language),
       createdAt,
       tone: "passive",
       persistence: "low",
@@ -395,12 +415,12 @@ function normalizeTaskEvent(
 
   return {
     id: `task:${task.id}:${status}`,
-    title: "Old work moved out of focus",
+    title: translate(language, "Old work moved out of focus", "Старая работа убрана из фокуса"),
     detail: `${leadName}: ${taskTitle}`,
     interpretation:
-      "This item no longer needs immediate attention.",
-    time: getRelativeTime(createdAt),
-    group: getTimeGroup(createdAt),
+      translate(language, "This item no longer needs immediate attention.", "Эта задача больше не требует немедленного внимания."),
+    time: getRelativeTime(createdAt, language),
+    group: getTimeGroup(createdAt, language),
     createdAt,
     tone: "passive",
     persistence: "low",
@@ -411,10 +431,12 @@ function buildOperationalStream({
   aiEvents,
   leads,
   tasks,
+  language,
 }: {
   aiEvents: AIEvent[];
   leads: Lead[];
   tasks: Task[];
+  language: Language;
 }) {
   const leadMap = new Map(leads.map((lead) => [lead.id, lead]));
   const activeTasks = tasks.filter(
@@ -499,12 +521,12 @@ function buildOperationalStream({
     lowRiskApprovalTasks.length >= 2 && escalatedTasks.length > 0
       ? {
           id: "coordination:reroute-low-risk",
-          title: "AVERON can take routine work back",
-          detail: `${lowRiskApprovalTasks.length} routine approvals can move away from people.`,
+          title: translate(language, "AVERON can take routine work back", "AVERON может забрать рутинную работу"),
+          detail: translate(language, `${lowRiskApprovalTasks.length} routine approvals can move away from people.`, `${lowRiskApprovalTasks.length} рутинных одобрений можно убрать от людей.`),
           interpretation:
-            "People should stay focused on hard cases while AVERON handles routine work.",
-          time: "now",
-          group: "Now",
+            translate(language, "People should stay focused on hard cases while AVERON handles routine work.", "Люди должны заниматься сложными случаями, а AVERON - рутиной."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "active",
           persistence: "high",
@@ -513,14 +535,12 @@ function buildOperationalStream({
     enterpriseRecoveryTasks.length > 0
       ? {
           id: "coordination:enterprise-priority",
-          title: "Important stuck deals moved to the top",
-          detail: `${enterpriseRecoveryTasks.length} high-intent delayed workflow${
-            enterpriseRecoveryTasks.length === 1 ? "" : "s"
-          } moved above routine work.`,
+          title: translate(language, "Important stuck deals moved to the top", "Важные застрявшие сделки подняты выше"),
+          detail: translate(language, `${enterpriseRecoveryTasks.length} high-intent delayed workflow${enterpriseRecoveryTasks.length === 1 ? "" : "s"} moved above routine work.`, `${enterpriseRecoveryTasks.length} важных задержанных процессов поднято выше рутины.`),
           interpretation:
-            "The highest-potential delayed deals should get attention first.",
-          time: "now",
-          group: "Now",
+            translate(language, "The highest-potential delayed deals should get attention first.", "Сначала нужно заняться задержанными сделками с наибольшим потенциалом."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "critical",
           persistence: "high",
@@ -529,12 +549,12 @@ function buildOperationalStream({
     pendingTasks.length >= 4 && approvedTasks.length < pendingTasks.length
       ? {
           id: "coordination:approval-redistribution",
-          title: "Too many approvals are waiting",
-          detail: `${pendingTasks.length} approvals are waiting while ${approvedTasks.length} items are already with AVERON.`,
+          title: translate(language, "Too many approvals are waiting", "Слишком много одобрений ждут"),
+          detail: translate(language, `${pendingTasks.length} approvals are waiting while ${approvedTasks.length} items are already with AVERON.`, `${pendingTasks.length} одобрений ждут, пока ${approvedTasks.length} задач уже у AVERON.`),
           interpretation:
-            "AVERON should take routine approvals back so people are less overloaded.",
-          time: "now",
-          group: "Now",
+            translate(language, "AVERON should take routine approvals back so people are less overloaded.", "AVERON должен забрать рутинные одобрения, чтобы снизить нагрузку на людей."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "critical",
           persistence: "high",
@@ -543,12 +563,12 @@ function buildOperationalStream({
     approvedTasks.length > 0 && escalatedTasks.length === 0
       ? {
           id: "coordination:ai-ownership-expanding",
-          title: "AVERON can carry more work",
-          detail: `${approvedTasks.length} workflows are delegated to AI without escalation concentration.`,
+          title: translate(language, "AVERON can carry more work", "AVERON может взять больше работы"),
+          detail: translate(language, `${approvedTasks.length} workflows are delegated to AI without escalation concentration.`, `${approvedTasks.length} процессов переданы AI без скопления эскалаций.`),
           interpretation:
-            "Routine work can stay with AVERON while people handle exceptions.",
-          time: "now",
-          group: "Now",
+            translate(language, "Routine work can stay with AVERON while people handle exceptions.", "Рутина может оставаться у AVERON, пока люди занимаются исключениями."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "active",
           persistence: "normal",
@@ -557,14 +577,12 @@ function buildOperationalStream({
     escalatedTasks.length > 0
       ? {
           id: "coordination:human-reserved",
-          title: "People should handle only the hard cases",
-          detail: `${escalatedTasks.length} escalated workflow${
-            escalatedTasks.length === 1 ? "" : "s"
-          } kept with people.`,
+          title: translate(language, "People should handle only the hard cases", "Люди должны заниматься только сложными случаями"),
+          detail: translate(language, `${escalatedTasks.length} escalated workflow${escalatedTasks.length === 1 ? "" : "s"} kept with people.`, `${escalatedTasks.length} эскалированных процессов оставлены людям.`),
           interpretation:
-            "AVERON is separating routine work from cases that need judgment.",
-          time: "now",
-          group: "Now",
+            translate(language, "AVERON is separating routine work from cases that need judgment.", "AVERON отделяет рутину от случаев, где нужно человеческое решение."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "active",
           persistence: "normal",
@@ -573,12 +591,12 @@ function buildOperationalStream({
     escalatedTasks.length >= 2 || recentEscalationEvents.length >= 2
       ? {
           id: "cognition:escalation-backlog",
-          title: "More deals may soon need people",
-          detail: `${escalatedTasks.length} workflows are escalated and ${recentEscalationEvents.length} escalation signals appeared recently.`,
+          title: translate(language, "More deals may soon need people", "Скоро больше сделок могут потребовать людей"),
+          detail: translate(language, `${escalatedTasks.length} workflows are escalated and ${recentEscalationEvents.length} escalation signals appeared recently.`, `${escalatedTasks.length} процессов эскалированы, и недавно появилось ${recentEscalationEvents.length} сигналов эскалации.`),
           interpretation:
-            "If people do not clear these, more work may pile up behind them.",
-          time: "now",
-          group: "Now",
+            translate(language, "If people do not clear these, more work may pile up behind them.", "Если люди не разберут это, за ними начнет копиться больше работы."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "critical",
           persistence: "high",
@@ -587,12 +605,12 @@ function buildOperationalStream({
     pendingTasks.length >= 4
       ? {
           id: "cognition:approval-saturation",
-          title: "Approvals may slow everything down",
-          detail: `${pendingTasks.length} ready items are waiting for approval.`,
+          title: translate(language, "Approvals may slow everything down", "Одобрения могут замедлить всю работу"),
+          detail: translate(language, `${pendingTasks.length} ready items are waiting for approval.`, `${pendingTasks.length} готовых задач ждут одобрения.`),
           interpretation:
-            "AVERON cannot move routine work until people approve it.",
-          time: "now",
-          group: "Now",
+            translate(language, "AVERON cannot move routine work until people approve it.", "AVERON не может двигать рутину, пока люди ее не одобрят."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "critical",
           persistence: "high",
@@ -601,12 +619,12 @@ function buildOperationalStream({
     highIntentAgingLeads.length > 0
       ? {
           id: "cognition:enterprise-latency",
-          title: "Important buyers are waiting too long",
-          detail: `${highIntentAgingLeads.length} important buyer path is aging while work piles up.`,
+          title: translate(language, "Important buyers are waiting too long", "Важные покупатели ждут слишком долго"),
+          detail: translate(language, `${highIntentAgingLeads.length} important buyer path is aging while work piles up.`, `${highIntentAgingLeads.length} важный путь покупателя стареет, пока работа копится.`),
           interpretation:
-            "The deal may cool if this waits behind routine work.",
-          time: "now",
-          group: "Now",
+            translate(language, "The deal may cool if this waits behind routine work.", "Сделка может остыть, если будет ждать за рутинной работой."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "critical",
           persistence: "high",
@@ -616,12 +634,12 @@ function buildOperationalStream({
     completedRecently.length > 0
       ? {
           id: "cognition:recovery-improving",
-          title: "Work is recovering",
-          detail: `${completedRecently.length} completed items are outpacing ${stalledTasks.length} stuck items.`,
+          title: translate(language, "Work is recovering", "Работа восстанавливается"),
+          detail: translate(language, `${completedRecently.length} completed items are outpacing ${stalledTasks.length} stuck items.`, `${completedRecently.length} завершенных задач обгоняют ${stalledTasks.length} застрявших.`),
           interpretation:
-            "AVERON is clearing the backlog and can keep moving routine work.",
-          time: "now",
-          group: "Now",
+            translate(language, "AVERON is clearing the backlog and can keep moving routine work.", "AVERON разбирает очередь и может продолжать рутинную работу."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "active",
           persistence: "normal",
@@ -630,12 +648,12 @@ function buildOperationalStream({
     approvedTasks.length > 0 && stalledTasks.length === 0
       ? {
           id: "cognition:throughput-recovering",
-          title: "AVERON work is moving again",
-          detail: `${approvedTasks.length} approved items are with AVERON and not blocked.`,
+          title: translate(language, "AVERON work is moving again", "Работа AVERON снова движется"),
+          detail: translate(language, `${approvedTasks.length} approved items are with AVERON and not blocked.`, `${approvedTasks.length} одобренных задач у AVERON и не заблокированы.`),
           interpretation:
-            "The system can keep moving while watching for new slowdowns.",
-          time: "now",
-          group: "Now",
+            translate(language, "The system can keep moving while watching for new slowdowns.", "Система может двигаться дальше и следить за новыми замедлениями."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "active",
           persistence: "normal",
@@ -646,12 +664,12 @@ function buildOperationalStream({
     activeTasks.length > 0
       ? {
           id: "cognition:pressure-stabilizing",
-          title: "Human workload looks stable",
-          detail: `${activeTasks.length} active items remain without a pileup of hard cases.`,
+          title: translate(language, "Human workload looks stable", "Нагрузка на людей выглядит стабильной"),
+          detail: translate(language, `${activeTasks.length} active items remain without a pileup of hard cases.`, `${activeTasks.length} активных задач без скопления сложных случаев.`),
           interpretation:
-            "Current work is not showing signs of a broader slowdown.",
-          time: "now",
-          group: "Now",
+            translate(language, "Current work is not showing signs of a broader slowdown.", "Текущая работа не показывает признаков общего замедления."),
+          time: translate(language, "now", "сейчас"),
+          group: getTimeGroup(now, language),
           createdAt: now,
           tone: "passive",
           persistence: "low",
@@ -661,13 +679,15 @@ function buildOperationalStream({
   const aiItems = aiEvents.map((event) =>
     normalizeAIEvent(
       event,
-      event.lead_id ? leadMap.get(event.lead_id) : undefined
+      event.lead_id ? leadMap.get(event.lead_id) : undefined,
+      language
     )
   );
   const taskItems = tasks.map((task) =>
     normalizeTaskEvent(
       task,
-      task.lead_id ? leadMap.get(task.lead_id) : undefined
+      task.lead_id ? leadMap.get(task.lead_id) : undefined,
+      language
     )
   );
   const uniqueItems = new Map<string, OperationalStreamItem>();
@@ -725,6 +745,7 @@ export default function DashboardShell({
   const pathname = usePathname();
   const showExecutionRail = pathname === "/dashboard";
   const isDeepWorkspace = pathname.startsWith("/dashboard/leads/");
+  const { language, setLanguage, t } = useLanguage();
   const [summary, setSummary] = useState<ShellSummary>({});
   const [streamItems, setStreamItems] = useState<OperationalStreamItem[]>([]);
   const [updatedEventIds, setUpdatedEventIds] = useState<Set<string>>(
@@ -785,6 +806,7 @@ export default function DashboardShell({
           aiEvents,
           leads,
           tasks,
+          language,
         });
         const previousEventIds = knownEventIdsRef.current;
         const nextEventIds = new Set(
@@ -815,7 +837,7 @@ export default function DashboardShell({
     return () => {
       window.clearInterval(interval);
     };
-  }, [showExecutionRail]);
+  }, [language, showExecutionRail]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">
@@ -836,13 +858,38 @@ export default function DashboardShell({
               isDeepWorkspace ? "hidden" : ""
             }`}
           >
-            Revenue Execution
+            {translate(language, "Revenue Execution", "Revenue-выполнение")}
           </div>
         </Link>
+
+        <div
+          className={`mt-4 flex items-center text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-600 ${
+            isDeepWorkspace ? "justify-center gap-1" : "gap-2 px-3"
+          }`}
+        >
+          {(["ru", "en"] as const).map((item, index) => (
+            <span key={item} className="flex items-center gap-1">
+              {index > 0 && <span className="text-zinc-800">|</span>}
+              <button
+                type="button"
+                onClick={() => setLanguage(item)}
+                className={`rounded-md px-1 py-1 transition ${
+                  language === item
+                    ? "text-white"
+                    : "text-zinc-600 hover:text-zinc-300"
+                }`}
+                title={item === "ru" ? "Russian" : "English"}
+              >
+                {item.toUpperCase()}
+              </button>
+            </span>
+          ))}
+        </div>
 
         <nav className="mt-10 space-y-2">
           {navigation.map((item) => {
             const Icon = item.icon;
+            const label = t(item.labelKey);
             const isActive =
               pathname === item.href ||
               (item.href !== "/dashboard" && pathname.startsWith(item.href));
@@ -851,7 +898,7 @@ export default function DashboardShell({
               <Link
                 key={item.href}
                 href={item.href}
-                title={isDeepWorkspace ? item.label : undefined}
+                title={isDeepWorkspace ? label : undefined}
                 className={`nav-surface flex h-12 items-center rounded-xl text-sm font-medium ${
                   isActive
                     ? "border border-zinc-600 bg-white text-black shadow-[0_14px_40px_rgba(255,255,255,0.08)]"
@@ -860,7 +907,7 @@ export default function DashboardShell({
               >
                 <Icon className="h-4 w-4" />
                 <span className={isDeepWorkspace ? "hidden" : ""}>
-                  {item.label}
+                  {label}
                 </span>
               </Link>
             );
@@ -875,7 +922,7 @@ export default function DashboardShell({
           <div className="flex items-center gap-2 text-sm font-semibold text-green-400">
             <span className="live-dot live-beacon h-2 w-2 rounded-full bg-green-400" />
             <span className={isDeepWorkspace ? "hidden" : ""}>
-              System Operational
+              {t("systemOperational")}
             </span>
           </div>
           <p
@@ -883,7 +930,11 @@ export default function DashboardShell({
               isDeepWorkspace ? "hidden" : ""
             }`}
           >
-            AVERON is moving revenue work and watching for blockers.
+            {translate(
+              language,
+              "AVERON is moving revenue work and watching for blockers.",
+              "AVERON двигает revenue-задачи и следит за блокерами."
+            )}
           </p>
         </div>
       </aside>
@@ -893,34 +944,34 @@ export default function DashboardShell({
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold text-white">
-                Execution Rail
+                {t("executionRail")}
               </div>
               <div className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">
-                Live System State
+                {t("liveSystemState")}
               </div>
             </div>
             <Radio className="h-4 w-4 text-green-400" />
           </div>
 
           <div className="mt-6 grid grid-cols-3 gap-2">
-            <Metric label="Leads" value={summary.leadsCount ?? 0} />
-            <Metric label="Tasks" value={summary.tasksCount ?? 0} />
-            <Metric label="Talks" value={summary.conversationsCount ?? 0} />
+            <Metric label={t("leads")} value={summary.leadsCount ?? 0} />
+            <Metric label={t("tasks")} value={summary.tasksCount ?? 0} />
+            <Metric label={t("conversations")} value={summary.conversationsCount ?? 0} />
           </div>
 
           <div className="mt-8 min-h-0 flex-1 overflow-hidden">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-sm font-semibold">
               <Activity className="h-4 w-4 text-zinc-400" />
-                AI Operations Stream
+                {t("aiOperationsStream")}
               </div>
               <div className="flex items-center gap-1.5 rounded-full border border-[#00ffcc]/15 bg-[#00ffcc]/[0.055] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#00ffcc]">
                 <span className="live-dot h-1.5 w-1.5 rounded-full bg-[#00ffcc]" />
-                Live
+                {t("live")}
               </div>
             </div>
             <div className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-600">
-              What changed, why it matters
+              {t("temporalTelemetry")}
             </div>
 
             <div className="mt-4 h-[calc(100vh-270px)] space-y-2 overflow-y-auto pr-1">
@@ -950,7 +1001,11 @@ export default function DashboardShell({
                 })
               ) : (
                 <div className="rounded-xl border border-zinc-900 bg-black p-4 text-sm leading-6 text-zinc-500">
-                  No operational stream activity yet.
+                  {translate(
+                    language,
+                    "No operational stream activity yet.",
+                    "Рабочий поток пока пуст."
+                  )}
                 </div>
               )}
             </div>
@@ -961,7 +1016,7 @@ export default function DashboardShell({
           className="operational-surface mt-auto flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-black hover:opacity-95"
           >
             <Target className="h-4 w-4" />
-            Review Execution Queue
+            {t("reviewExecutionQueue")}
           </Link>
         </aside>
       )}

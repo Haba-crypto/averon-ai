@@ -1,50 +1,12 @@
 "use client";
 
-const agents = [
+import Link from "next/link";
 
-  {
-    name: "SDR Agent",
-    description:
-      "Autonomous outbound prospecting and qualification.",
-    status: "active",
-    tasks: 148,
-    conversations: 82,
-    revenue: "$42K",
-  },
-
-  {
-    name: "Closer Agent",
-    description:
-      "Handles demos, objections, and deal progression.",
-    status: "active",
-    tasks: 64,
-    conversations: 31,
-    revenue: "$118K",
-  },
-
-  {
-    name: "Research Agent",
-    description:
-      "Enriches leads with company and market intelligence.",
-    status: "active",
-    tasks: 203,
-    conversations: 0,
-    revenue: "$0",
-  },
-
-  {
-    name: "Ops Agent",
-    description:
-      "Optimizes CRM workflows and pipeline operations.",
-    status: "active",
-    tasks: 91,
-    conversations: 12,
-    revenue: "$18K",
-  },
-
-];
+import { agentRegistry } from "@/lib/agents/agent-registry";
+import { translate, useLanguage } from "@/lib/i18n/language";
 
 export default function AgentsPage() {
+  const { language, t } = useLanguage();
 
   return (
 
@@ -58,13 +20,17 @@ export default function AgentsPage() {
 
           <h1 className="text-6xl font-bold">
 
-            AI Agents
+            {t("aiAgents")}
 
           </h1>
 
           <p className="mt-4 text-xl text-zinc-500">
 
-            Autonomous multi-agent revenue infrastructure
+            {translate(
+              language,
+              "Autonomous multi-agent revenue infrastructure",
+              "Автономная AI-инфраструктура для revenue-работы"
+            )}
 
           </p>
 
@@ -74,13 +40,13 @@ export default function AgentsPage() {
 
           <div className="text-zinc-500">
 
-            Active Agents
+            {t("activeAgents")}
 
           </div>
 
           <div className="mt-2 text-5xl font-bold">
 
-            {agents.length}
+            {agentRegistry.length}
 
           </div>
 
@@ -92,7 +58,7 @@ export default function AgentsPage() {
 
       <div className="mt-12 grid grid-cols-2 gap-6">
 
-        {agents.map((agent) => (
+        {agentRegistry.map((agent) => (
 
           <div
             key={agent.name}
@@ -113,7 +79,17 @@ export default function AgentsPage() {
 
                 <p className="mt-4 max-w-[500px] text-lg leading-relaxed text-zinc-500">
 
-                  {agent.description}
+                {translate(
+                  language,
+                  agent.description,
+                  agent.name === "SDR Agent"
+                    ? "Автономный поиск и квалификация лидов."
+                    : agent.name === "Closer Agent"
+                    ? "Ведет демо, возражения и движение сделки."
+                    : agent.name === "Research Agent"
+                    ? "Обогащает лидов данными о компании и рынке."
+                    : "Оптимизирует CRM-процессы и pipeline."
+                )}
 
                 </p>
 
@@ -123,7 +99,7 @@ export default function AgentsPage() {
 
                 <div className="h-3 w-3 rounded-full bg-green-400" />
 
-                {agent.status}
+                {translate(language, agent.status, "активен")}
 
               </div>
 
@@ -137,7 +113,7 @@ export default function AgentsPage() {
 
                 <div className="text-zinc-500">
 
-                  Tasks
+                  {t("tasks")}
 
                 </div>
 
@@ -153,7 +129,7 @@ export default function AgentsPage() {
 
                 <div className="text-zinc-500">
 
-                  Conversations
+                  {t("conversations")}
 
                 </div>
 
@@ -189,17 +165,18 @@ export default function AgentsPage() {
 
               <div className="text-zinc-500">
 
-                Runtime memory active
+                {t("runtimeMemoryActive")}
 
               </div>
 
-              <button
+              <Link
+                href={`/dashboard/agents/${agent.id}`}
                 className="rounded-2xl bg-white px-6 py-3 font-semibold text-black"
               >
 
-                Open Agent
+                {t("openAgent")}
 
-              </button>
+              </Link>
 
             </div>
 

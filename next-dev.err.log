@@ -1,0 +1,17 @@
+[browser] Detected `scroll-behavior: smooth` on the `<html>` element. To disable smooth scrolling during route transitions, add `data-scroll-behavior="smooth"` to your <html> element. Learn more: https://nextjs.org/docs/messages/missing-data-scroll-behavior
+[TypeError: fetch failed] {
+  [cause]: Error [SocketError]: other side closed
+      at ignore-listed frames {
+    code: 'UND_ERR_SOCKET',
+    socket: {
+      localAddress: '10.255.0.1',
+      localPort: 64089,
+      remoteAddress: '172.64.149.246',
+      remotePort: 443,
+      remoteFamily: 'IPv4',
+      timeout: undefined,
+      bytesWritten: 2632,
+      bytesRead: 1298
+    }
+  }
+}

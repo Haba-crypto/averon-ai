@@ -4,6 +4,8 @@ import Link from "next/link";
 import { ArrowRight, Search, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { translate, useLanguage } from "@/lib/i18n/language";
+
 type Lead = {
   id: string;
   name?: string | null;
@@ -25,6 +27,7 @@ function getLeadSignal(lead: Lead) {
 }
 
 export default function LeadsPage() {
+  const { language, t } = useLanguage();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [query, setQuery] = useState("");
 
@@ -81,21 +84,24 @@ export default function LeadsPage() {
       <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">
-            Lead Work Queue
+            {t("leadWorkQueue")}
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-5xl">
-            Revenue Accounts
+            {t("revenueAccounts")}
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-zinc-500">
-            Prioritized lead records for review, routing, and AI-assisted
-            follow-up.
+            {translate(
+              language,
+              "Prioritized lead records for review, routing, and AI-assisted follow-up.",
+              "Приоритетные лиды для проверки, маршрута и follow-up с AI."
+            )}
           </p>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <Metric label="Leads" value={leads.length} />
-          <Metric label="Hot" value={hotLeads} />
-          <Metric label="Intent" value={avgIntent} />
+          <Metric label={t("leads")} value={leads.length} />
+          <Metric label={translate(language, "Hot", "Горячие")} value={hotLeads} />
+          <Metric label={t("intent")} value={avgIntent} />
         </div>
       </header>
 
@@ -106,9 +112,13 @@ export default function LeadsPage() {
               <Users className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold">Open Lead Queue</h2>
+              <h2 className="text-xl font-semibold">{t("openLeadQueue")}</h2>
               <p className="mt-1 text-sm text-zinc-500">
-                Select a lead to enter the dedicated workspace.
+                {translate(
+                  language,
+                  "Select a lead to enter the dedicated workspace.",
+                  "Выберите лида, чтобы открыть рабочее место."
+                )}
               </p>
             </div>
           </div>
@@ -118,7 +128,7 @@ export default function LeadsPage() {
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search leads"
+              placeholder={t("searchLeads")}
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-600"
             />
           </label>
@@ -142,17 +152,17 @@ export default function LeadsPage() {
                 </div>
 
                 <QueueCell
-                  label="Status"
+                  label={t("status")}
                   value={lead.status || "new"}
                   accent={lead.urgency === "high" ? "text-red-300" : ""}
                 />
                 <QueueCell
-                  label="Intent"
+                  label={t("intent")}
                   value={`${lead.intent_score ?? 0}`}
                 />
                 <div className="flex items-center justify-between gap-3 lg:justify-end">
                   <QueueCell
-                    label="Close"
+                    label={t("close")}
                     value={`${lead.close_probability ?? 0}%`}
                   />
                   <ArrowRight className="h-5 w-5 shrink-0 text-zinc-600 transition duration-300 group-hover:translate-x-1 group-hover:text-white" />
@@ -161,7 +171,11 @@ export default function LeadsPage() {
             ))
           ) : (
             <div className="p-8 text-sm text-zinc-500">
-              No leads match this queue view.
+              {translate(
+                language,
+                "No leads match this queue view.",
+                "Под этот вид очереди лиды не подходят."
+              )}
             </div>
           )}
         </div>

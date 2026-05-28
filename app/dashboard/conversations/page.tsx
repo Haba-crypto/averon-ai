@@ -14,6 +14,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  type TranslationKey,
+  translate,
+  useLanguage,
+} from "@/lib/i18n/language";
+
 type Lead = {
   id: string;
   name?: string | null;
@@ -64,42 +70,42 @@ type FilterKey =
 
 const filters: Array<{
   key: FilterKey;
-  label: string;
+  labelKey: TranslationKey;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 }> = [
   {
     key: "all",
-    label: "All",
+    labelKey: "filtersAll",
     icon: MessageSquare,
   },
   {
     key: "needsHuman",
-    label: "Needs Human",
+    labelKey: "filtersNeedsHuman",
     icon: UserCheck,
   },
   {
     key: "hot",
-    label: "Hot Leads",
+    labelKey: "filtersHotLeads",
     icon: Flame,
   },
   {
     key: "objections",
-    label: "Objections",
+    labelKey: "filtersObjections",
     icon: ShieldAlert,
   },
   {
     key: "waiting",
-    label: "Waiting",
+    labelKey: "filtersWaiting",
     icon: Clock3,
   },
   {
     key: "aiActive",
-    label: "AI Active",
+    labelKey: "filtersAiActive",
     icon: Bot,
   },
   {
     key: "highRisk",
-    label: "High Risk",
+    labelKey: "filtersHighRisk",
     icon: AlertTriangle,
   },
 ];
@@ -219,6 +225,7 @@ function getPriority(thread: ConversationThread) {
 }
 
 export default function ConversationsPage() {
+  const { language, t } = useLanguage();
   const [threads, setThreads] = useState<ConversationThread[]>([]);
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
   const [loading, setLoading] = useState(true);
@@ -293,24 +300,27 @@ export default function ConversationsPage() {
       <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 xl:flex-row xl:items-end xl:justify-between">
         <div className="min-w-0">
           <div className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">
-            Revenue Conversation Inbox
+            {t("revenueConversationInbox")}
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-5xl">
-            AI Triage Command
+            {t("aiTriageCommand")}
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-zinc-500">
-            Prioritized buyer conversations with AI state, urgency, and next
-            operational action.
+            {translate(
+              language,
+              "Prioritized buyer conversations with AI state, urgency, and next operational action.",
+              "Приоритетные диалоги с состоянием AI, срочностью и следующим действием."
+            )}
           </p>
         </div>
 
         <div className="grid w-full grid-cols-3 gap-2 sm:max-w-xl sm:gap-3 xl:w-auto">
           <Metric
-            label="Needs Human"
+            label={t("filtersNeedsHuman")}
             value={threads.filter((item) => item.needsHuman).length}
           />
           <Metric
-            label="Hot"
+            label={translate(language, "Hot", "Горячие")}
             value={
               threads.filter(
                 (item) => item.intentScore >= 70 || item.urgency === "high"
@@ -318,7 +328,7 @@ export default function ConversationsPage() {
             }
           />
           <Metric
-            label="AI Active"
+            label={t("filtersAiActive")}
             value={threads.filter((item) => item.aiCanContinue).length}
           />
         </div>
@@ -341,7 +351,7 @@ export default function ConversationsPage() {
               }`}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{filter.label}</span>
+              <span className="truncate">{t(filter.labelKey)}</span>
             </button>
           );
         })}
@@ -351,22 +361,28 @@ export default function ConversationsPage() {
         <section className="premium-card min-w-0 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
           <div className="flex flex-col gap-3 border-b border-zinc-900 p-5 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
-              <h2 className="text-xl font-semibold">Prioritized Threads</h2>
+              <h2 className="text-xl font-semibold">
+                {translate(language, "Prioritized Threads", "Приоритетные диалоги")}
+              </h2>
               <p className="mt-1 text-sm text-zinc-500">
-                Sorted by human need, buyer intent, risk, and AI state.
+                {translate(
+                  language,
+                  "Sorted by human need, buyer intent, risk, and AI state.",
+                  "Отсортировано по необходимости человека, интенту, риску и состоянию AI."
+                )}
               </p>
             </div>
 
             <div className="flex shrink-0 items-center gap-2 text-sm text-green-400">
               <Radio className="h-4 w-4 shrink-0" />
-              Live Triage
+              {translate(language, "Live Triage", "Живая сортировка")}
             </div>
           </div>
 
           <div className="divide-y divide-zinc-900">
             {loading ? (
               <div className="p-8 text-sm text-zinc-500">
-                Loading conversation inbox...
+                {translate(language, "Loading conversation inbox...", "Загрузка диалогов...")}
               </div>
             ) : filteredThreads.length > 0 ? (
               filteredThreads.map((thread) => (
@@ -374,7 +390,7 @@ export default function ConversationsPage() {
               ))
             ) : (
               <div className="p-8 text-sm text-zinc-500">
-                No conversations match this triage filter.
+                {translate(language, "No conversations match this triage filter.", "Под этот фильтр диалоги не подходят.")}
               </div>
             )}
           </div>
@@ -382,7 +398,7 @@ export default function ConversationsPage() {
 
         <aside className="premium-card min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 2xl:h-fit">
           <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-            Triage Brief
+            {t("triageBrief")}
           </div>
 
           {selectedThread ? (
@@ -392,28 +408,31 @@ export default function ConversationsPage() {
                   {getLeadName(selectedThread.lead)}
                 </div>
                 <div className="mt-2 truncate text-sm text-zinc-500">
-                  {selectedThread.lead.email || "No email recorded"}
+                  {selectedThread.lead.email ||
+                    translate(language, "No email recorded", "Email не указан")}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <Insight
-                  label="Intent"
+                  label={t("intent")}
                   value={`${selectedThread.intentScore}`}
                 />
                 <Insight
-                  label="Confidence"
+                  label={t("confidence")}
                   value={`${selectedThread.confidence}%`}
                 />
-                <Insight label="Urgency" value={selectedThread.urgency} />
+                <Insight label={t("urgency")} value={selectedThread.urgency} />
                 <Insight
-                  label="Status"
+                  label={t("status")}
                   value={selectedThread.lead.status || "new"}
                 />
               </div>
 
               <div className="min-w-0 rounded-xl border border-white/10 bg-black/30 p-4">
-                <div className="text-sm text-zinc-500">Latest AI Context</div>
+                <div className="text-sm text-zinc-500">
+                  {t("latestAiContext")}
+                </div>
                 <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-300">
                   {selectedThread.recentAiAction}
                 </p>
@@ -421,7 +440,7 @@ export default function ConversationsPage() {
 
               <div className="min-w-0 rounded-xl border border-[#00ffcc]/20 bg-[#00ffcc]/[0.06] p-4">
                 <div className="text-sm text-[#00ffcc]">
-                  Next Recommended Action
+                  {t("latestRecommendation")}
                 </div>
                 <p className="mt-2 line-clamp-5 text-sm leading-6 text-zinc-200">
                   {selectedThread.nextAction}
@@ -432,13 +451,13 @@ export default function ConversationsPage() {
                 href={`/dashboard/leads/${selectedThread.lead.id}`}
                 className="operational-surface flex h-12 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-black"
               >
-                Enter Workspace
+                {t("enterWorkspace")}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           ) : (
             <div className="mt-5 text-sm text-zinc-500">
-              No conversation threads available.
+              {translate(language, "No conversation threads available.", "Диалогов пока нет.")}
             </div>
           )}
         </aside>
@@ -452,6 +471,8 @@ function ConversationCard({
 }: {
   thread: ConversationThread;
 }) {
+  const { language, t } = useLanguage();
+
   return (
     <Link
       href={`/dashboard/leads/${thread.lead.id}`}
@@ -464,10 +485,14 @@ function ConversationCard({
               {getLeadName(thread.lead)}
             </h3>
             {thread.needsHuman && (
-              <Badge tone="amber">Needs Human</Badge>
+                  <Badge tone="amber">
+                    {translate(language, "Needs Human", "Нужен человек")}
+                  </Badge>
             )}
             {thread.aiCanContinue && (
-              <Badge tone="green">AI Can Continue</Badge>
+              <Badge tone="green">
+                {translate(language, "AI Can Continue", "AI может продолжить")}
+              </Badge>
             )}
           </div>
 
@@ -477,21 +502,21 @@ function ConversationCard({
         </div>
 
         <div className="grid min-w-0 grid-cols-2 gap-2 sm:gap-3">
-          <Insight label="Intent" value={`${thread.intentScore}`} />
-          <Insight label="Urgency" value={thread.urgency} />
+          <Insight label={t("intent")} value={`${thread.intentScore}`} />
+          <Insight label={t("urgency")} value={thread.urgency} />
         </div>
 
         <div className="min-w-0 space-y-2">
           <StatusLine
-            label="Classification"
+            label={translate(language, "Classification", "Классификация")}
             value={thread.latestClassification}
           />
           <StatusLine
-            label="Recent AI Action"
+            label={translate(language, "Recent AI Action", "Последнее действие AI")}
             value={thread.recentAiAction}
           />
           <StatusLine
-            label="Next Action"
+            label={translate(language, "Next Action", "Следующее действие")}
             value={thread.nextAction}
           />
         </div>
@@ -499,7 +524,7 @@ function ConversationCard({
         <div className="flex min-w-0 items-center justify-between gap-4 xl:justify-end">
           <div className="min-w-0 text-left xl:text-right">
             <div className="text-xs uppercase tracking-[0.16em] text-zinc-600">
-              Confidence
+              {t("confidence")}
             </div>
             <div className="mt-1 text-lg font-semibold">
               {thread.confidence}%
@@ -511,11 +536,25 @@ function ConversationCard({
 
       <div className="mt-4 flex min-w-0 flex-wrap gap-2">
         {thread.meetingRequested && (
-          <Badge tone="green">Meeting Requested</Badge>
+          <Badge tone="green">
+            {translate(language, "Meeting Requested", "Запрошена встреча")}
+          </Badge>
         )}
-        {thread.hasObjection && <Badge tone="red">Objection</Badge>}
-        {thread.stalled && <Badge tone="zinc">Stalled/Waiting</Badge>}
-        {thread.highRisk && <Badge tone="red">High Risk</Badge>}
+        {thread.hasObjection && (
+          <Badge tone="red">
+            {translate(language, "Objection", "Возражение")}
+          </Badge>
+        )}
+        {thread.stalled && (
+          <Badge tone="zinc">
+            {translate(language, "Stalled/Waiting", "Застряло/ждет")}
+          </Badge>
+        )}
+        {thread.highRisk && (
+          <Badge tone="red">
+            {translate(language, "High Risk", "Высокий риск")}
+          </Badge>
+        )}
       </div>
     </Link>
   );

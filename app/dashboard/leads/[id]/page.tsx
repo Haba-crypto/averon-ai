@@ -21,6 +21,7 @@ import {
 
 type Lead = {
   id: string;
+  work_item_id?: string | null;
   name: string;
   email: string;
   company?: string;
@@ -50,6 +51,30 @@ type AIEvent = {
   message: string;
   created_at: string;
 };
+
+type WorkItemTimelineItem = {
+  id: string;
+  type:
+    | "ai_event"
+    | "agent_execution"
+    | "agent_decision"
+    | "human_review"
+    | "memory_entry";
+  source:
+    | "ai_events"
+    | "agent_executions"
+    | "agent_decisions"
+    | "human_reviews"
+    | "memory_entries";
+  title: string;
+  message: string | null;
+  status: string | null;
+  agent_id: string | null;
+  confidence: number | null;
+  created_at: string;
+};
+
+type TimelineMode = "work_item" | "lead_events";
 
 type WorkflowTask = {
   id: string;
@@ -232,6 +257,32 @@ function getOperationalEventOrder(type: string) {
   );
 
   return index === -1 ? eventSequence.length : index;
+}
+
+function getTimelineSourceLabel(source: WorkItemTimelineItem["source"]) {
+  return source
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getTimelineTypeLabel(type: WorkItemTimelineItem["type"]) {
+  if (type === "ai_event") {
+    return "AI Event";
+  }
+
+  if (type === "agent_execution") {
+    return "Agent Execution";
+  }
+
+  if (type === "agent_decision") {
+    return "Agent Decision";
+  }
+
+  if (type === "human_review") {
+    return "Human Review";
+  }
+
+  return "Memory";
 }
 
 function getEventTime(createdAt: string) {
@@ -485,6 +536,17 @@ export default function LeadPage() {
       []
     );
 
+  const [workItemTimelineItems, setWorkItemTimelineItems] =
+    useState<WorkItemTimelineItem[]>(
+      []
+    );
+
+  const [timelineMode, setTimelineMode] =
+    useState<TimelineMode>("lead_events");
+
+  const [timelineFetchFailed, setTimelineFetchFailed] =
+    useState(false);
+
   const [activeAgent, setActiveAgent] =
     useState("SDR Agent");
 
@@ -554,6 +616,63 @@ export default function LeadPage() {
       );
     }
   }, []);
+
+  const applyWorkItemTimeline = useCallback((
+    nextItems: WorkItemTimelineItem[],
+    highlightNewItems: boolean
+  ) => {
+    const previousItemIds =
+      knownEventIdsRef.current;
+    const nextItemIds =
+      new Set(
+        nextItems.map((item) => item.id)
+      );
+    const newItems =
+      nextItems.filter(
+        (item) =>
+          !previousItemIds.has(item.id)
+      );
+
+    setWorkItemTimelineItems(nextItems);
+    knownEventIdsRef.current =
+      nextItemIds;
+
+    if (
+      highlightNewItems &&
+      previousItemIds.size > 0 &&
+      newItems.length > 0
+    ) {
+      setHighlightedEventId(
+        newItems[0].id
+      );
+    }
+  }, []);
+
+  const loadWorkItemTimeline = useCallback(async function loadWorkItemTimeline(
+    workItemId: string,
+    highlightNewItems: boolean
+  ) {
+    const timelineRes =
+      await fetch(
+        `/api/work-items/${workItemId}/timeline?limit=50`
+      );
+
+    if (!timelineRes.ok) {
+      throw new Error(
+        "Work item timeline unavailable"
+      );
+    }
+
+    const timelineData =
+      await timelineRes.json();
+
+    applyWorkItemTimeline(
+      timelineData.timeline?.items || [],
+      highlightNewItems
+    );
+    setTimelineMode("work_item");
+    setTimelineFetchFailed(false);
+  }, [applyWorkItemTimeline]);
 
   const applyLeadState = useCallback((
     nextLead: Lead | null
@@ -646,6 +765,26 @@ export default function LeadPage() {
           false
         );
 
+        if (foundLead?.work_item_id) {
+          try {
+            await loadWorkItemTimeline(
+              foundLead.work_item_id,
+              false
+            );
+          } catch (timelineError) {
+            console.error(
+              "WORK ITEM TIMELINE LOAD ERROR",
+              timelineError
+            );
+            setTimelineMode("lead_events");
+            setTimelineFetchFailed(true);
+          }
+        } else {
+          setTimelineMode("lead_events");
+          setTimelineFetchFailed(false);
+          setWorkItemTimelineItems([]);
+        }
+
         const tasksRes =
           await fetch("/api/tasks");
 
@@ -686,8 +825,12 @@ export default function LeadPage() {
   }, [
     applyEvents,
     applyLeadState,
+    loadWorkItemTimeline,
     leadId,
   ]);
+
+  const linkedWorkItemId =
+    lead?.work_item_id ?? null;
 
   const refreshEvents = useCallback(async function refreshEvents() {
 
@@ -704,8 +847,24 @@ export default function LeadPage() {
       applyEvents(
         eventData.events ||
           [],
-        true
+        !linkedWorkItemId
       );
+
+      if (linkedWorkItemId) {
+        try {
+          await loadWorkItemTimeline(
+            linkedWorkItemId,
+            true
+          );
+        } catch (timelineError) {
+          console.error(
+            "WORK ITEM TIMELINE REFRESH ERROR",
+            timelineError
+          );
+          setTimelineMode("lead_events");
+          setTimelineFetchFailed(true);
+        }
+      }
 
     } catch (error) {
 
@@ -716,6 +875,8 @@ export default function LeadPage() {
   }, [
     applyEvents,
     leadId,
+    linkedWorkItemId,
+    loadWorkItemTimeline,
   ]);
 
   async function sendMessage() {
@@ -822,7 +983,7 @@ export default function LeadPage() {
 
       if (data.lead) {
 
-        setLead(
+        applyLeadState(
           data.lead
         );
 
@@ -881,8 +1042,29 @@ export default function LeadPage() {
       applyLeadState(foundLead);
       applyEvents(
         eventData.events || [],
-        true
+        !foundLead?.work_item_id
       );
+
+      if (foundLead?.work_item_id) {
+        try {
+          await loadWorkItemTimeline(
+            foundLead.work_item_id,
+            true
+          );
+        } catch (timelineError) {
+          console.error(
+            "WORK ITEM TIMELINE REFRESH ERROR",
+            timelineError
+          );
+          setTimelineMode("lead_events");
+          setTimelineFetchFailed(true);
+        }
+      } else {
+        setTimelineMode("lead_events");
+        setTimelineFetchFailed(false);
+        setWorkItemTimelineItems([]);
+      }
+
       const leadTasks = (
         tasksData.tasks || []
       ).filter(
@@ -907,6 +1089,7 @@ export default function LeadPage() {
     applyEvents,
     applyLeadState,
     leadId,
+    loadWorkItemTimeline,
   ]);
 
   useEffect(() => {
@@ -1086,6 +1269,14 @@ export default function LeadPage() {
       getOperationalEventOrder(right.type)
     );
   });
+
+  const hasWorkItemTimeline =
+    timelineMode === "work_item" &&
+    Boolean(lead.work_item_id);
+  const timelineItems =
+    hasWorkItemTimeline
+      ? workItemTimelineItems
+      : [];
 
   const reasoningItems =
     buildReasoningItems(lead);
@@ -1917,29 +2108,187 @@ export default function LeadPage() {
             }`}
           >
 
-            <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
 
-              <div className="text-sm text-zinc-500">
+              <div className="min-w-0 text-sm text-zinc-500">
 
-                AI Execution Timeline
+                {hasWorkItemTimeline
+                  ? "Work Item Timeline"
+                  : "AI Execution Timeline"}
 
               </div>
 
-              {highlightedEventId && (
+              <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
 
-                <div className="rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-[11px] font-medium text-[#00ffcc]">
+                {timelineFetchFailed && (
+
+                  <div className="max-w-full truncate rounded-full border border-yellow-300/20 bg-yellow-300/10 px-2.5 py-1 text-[11px] font-medium text-yellow-200">
+
+                    Classic events
+
+                  </div>
+
+                )}
+
+                {hasWorkItemTimeline && (
+
+                  <div className="max-w-full truncate rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-[11px] font-medium text-[#00ffcc]">
+
+                    Work item linked
+
+                  </div>
+
+                )}
+
+                {highlightedEventId && (
+
+                <div className="max-w-full truncate rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-[11px] font-medium text-[#00ffcc]">
 
                   New workflow event
 
                 </div>
 
-              )}
+                )}
+
+              </div>
 
             </div>
 
             <div className="space-y-3">
 
-              {operationalEvents.length ===
+              {hasWorkItemTimeline ? (
+
+                timelineItems.length ===
+                0 ? (
+
+                  <div className="text-sm text-zinc-500">
+
+                    No work item timeline activity yet.
+
+                  </div>
+
+                ) : (
+
+                  timelineItems.map(
+                    (
+                      item,
+                      index
+                    ) => (
+
+                      <div
+                        key={
+                          item.id
+                        }
+                        className={`message-surface relative min-w-0 overflow-hidden rounded-xl border p-3 pl-10 text-zinc-300 ${
+                          highlightedEventId ===
+                          item.id
+                            ? "execution-pulse border-[#00ffcc]/30 bg-[#00ffcc]/[0.08] shadow-[0_0_34px_rgba(0,255,204,0.1)]"
+                            : "border-white/10 bg-black/30"
+                        }`}
+                      >
+
+                        <div
+                          className={`absolute left-3 top-3 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                            highlightedEventId ===
+                            item.id
+                              ? "live-beacon border-[#00ffcc]/40 bg-[#00ffcc]/20 text-[#00ffcc]"
+                              : "border-[#00ffcc]/30 bg-[#00ffcc]/10 text-[#00ffcc]"
+                          }`}
+                        >
+
+                          {index + 1}
+
+                        </div>
+
+                        <div className="mb-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+
+                          <div className="min-w-0 break-words text-xs uppercase tracking-[0.18em] text-[#00ffcc]">
+
+                            {getTimelineTypeLabel(
+                              item.type
+                            )}
+
+                          </div>
+
+                          <div className="whitespace-nowrap text-right text-[11px] text-zinc-600">
+
+                            {getEventTime(
+                              item.created_at
+                            )}
+
+                          </div>
+
+                        </div>
+
+                        <div className="min-w-0 break-words text-sm font-medium leading-5 text-zinc-200">
+
+                          {item.title}
+
+                        </div>
+
+                        <div className="mt-2 flex min-w-0 flex-wrap gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
+
+                          <span className="max-w-full break-words rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+
+                            {getTimelineSourceLabel(
+                              item.source
+                            )}
+
+                          </span>
+
+                          {item.status && (
+
+                            <span className="max-w-full break-words rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+
+                              {item.status}
+
+                            </span>
+
+                          )}
+
+                          {item.agent_id && (
+
+                            <span className="max-w-full break-all rounded-full border border-white/10 bg-black/20 px-2 py-0.5 normal-case">
+
+                              Agent {item.agent_id}
+
+                            </span>
+
+                          )}
+
+                          {typeof item.confidence === "number" && (
+
+                            <span className="max-w-full break-words rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+
+                              {Math.round(
+                                item.confidence * 100
+                              )}
+                              % confidence
+
+                            </span>
+
+                          )}
+
+                        </div>
+
+                        {item.message && (
+
+                          <div className="mt-2 min-w-0 break-words text-sm leading-6 text-zinc-400">
+
+                            {item.message}
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+                    )
+                  )
+
+                )
+
+              ) : operationalEvents.length ===
               0 ? (
 
                 <div className="text-sm text-zinc-500">
@@ -1966,7 +2315,7 @@ export default function LeadPage() {
                       key={
                         event.id
                       }
-                      className={`message-surface relative rounded-xl border p-3 pl-10 text-zinc-300 ${
+                      className={`message-surface relative min-w-0 overflow-hidden rounded-xl border p-3 pl-10 text-zinc-300 ${
                         highlightedEventId ===
                         event.id
                           ? "execution-pulse border-[#00ffcc]/30 bg-[#00ffcc]/[0.08] shadow-[0_0_34px_rgba(0,255,204,0.1)]"
@@ -1987,9 +2336,9 @@ export default function LeadPage() {
 
                       </div>
 
-                      <div className="mb-2 flex items-center justify-between gap-3">
+                      <div className="mb-2 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
 
-                        <div className="text-xs uppercase tracking-[0.18em] text-[#00ffcc]">
+                        <div className="min-w-0 break-words text-xs uppercase tracking-[0.18em] text-[#00ffcc]">
 
                           {getOperationalEventLabel(
                             event.type
@@ -1997,7 +2346,7 @@ export default function LeadPage() {
 
                         </div>
 
-                        <div className="shrink-0 text-[11px] text-zinc-600">
+                        <div className="whitespace-nowrap text-right text-[11px] text-zinc-600">
 
                           {getEventTime(
                             event.created_at
@@ -2007,23 +2356,23 @@ export default function LeadPage() {
 
                       </div>
 
-                      <div className="mb-2 grid gap-1 text-[11px] uppercase tracking-[0.16em] text-zinc-600">
+                      <div className="mb-2 grid min-w-0 gap-1 text-[11px] uppercase tracking-[0.16em] text-zinc-600">
 
-                        <div>
+                        <div className="min-w-0 break-words">
                           Source: {eventMeta.source}
                         </div>
 
-                        <div>
+                        <div className="min-w-0 break-words">
                           Origin: {eventMeta.origin}
                         </div>
 
-                        <div>
+                        <div className="min-w-0 break-words">
                           State: {eventMeta.state}
                         </div>
 
                       </div>
 
-                      <div className="text-sm leading-6 text-zinc-400">
+                      <div className="min-w-0 break-words text-sm leading-6 text-zinc-400">
 
                         {event.message}
 

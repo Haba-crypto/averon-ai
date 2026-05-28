@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "verify:routing": "node scripts/verify-agent-routing.mjs",
+    "verify:handoff": "node scripts/verify-agent-handoff.mjs",
     "start": "next start",
     "lint": "eslint"
   },

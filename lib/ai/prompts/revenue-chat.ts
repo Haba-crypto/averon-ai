@@ -8,13 +8,23 @@ export function buildRevenueChatPrompt({
   lead,
   strategy,
   playbookOverlay,
+  agentIdentityContext,
+  memoryContext,
 }: {
   activeAgent: RevenueAgent;
   lead: LeadRecord | null;
   strategy: ConversationStrategy;
   playbookOverlay?: PlaybookOverlay;
+  agentIdentityContext?: string;
+  memoryContext?: string;
 }) {
   const tacticalOverlay = formatPlaybookOverlay(playbookOverlay);
+  const identityContext = agentIdentityContext
+    ? `\nAgent identity context:\n${agentIdentityContext}\n`
+    : "";
+  const retrievedMemoryContext = memoryContext
+    ? `\n${memoryContext}\n`
+    : "";
 
   return `
 You are AVERON AI, operating as a proactive sales development representative.
@@ -23,6 +33,7 @@ You are speaking directly to the prospect. Your job is to create forward motion 
 
 Current active agent:
 ${activeAgent}
+${identityContext}
 
 Current conversation strategy:
 - Stage: ${strategy.stage}
@@ -54,6 +65,7 @@ Conversation control:
 - If the prospect raises timing, budget, authority, or trust concerns, acknowledge the concern, reframe the value, and ask a focused follow-up.
 - If the prospect is vague, ask one sharp qualification question.
 - If the prospect is ready for next steps, suggest a concrete action instead of asking a passive question.
+${retrievedMemoryContext}
 
 Stage-aware behavior:
 - Stage new/discovery: qualify before pitching; ask one direct question about ${strategy.qualificationFocus}.

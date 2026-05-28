@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import {
+  type Language,
+  translate,
+  useLanguage,
+} from "@/lib/i18n/language";
+
 type DashboardSummary = {
   leadsCount?: number;
   tasksCount?: number;
@@ -223,25 +229,39 @@ function getTaskTitle(task: Task) {
   );
 }
 
-function formatWaitingTime(timestamp?: string | null) {
+function formatWaitingTime(
+  timestamp?: string | null,
+  language: Language = "en"
+) {
   const hours = getHoursSince(timestamp);
 
   if (hours < 1) {
-    return "under 1h";
+    return translate(language, "under 1h", "меньше 1 ч");
   }
 
   if (hours < 24) {
-    return `${Math.floor(hours)}h`;
+    return translate(
+      language,
+      `${Math.floor(hours)}h`,
+      `${Math.floor(hours)} ч`
+    );
   }
 
-  return `${Math.floor(hours / 24)}d`;
+  return translate(
+    language,
+    `${Math.floor(hours / 24)}d`,
+    `${Math.floor(hours / 24)} д`
+  );
 }
 
 function buildRevenueIntelligence(
   leads: Lead[],
   tasks: Task[],
-  aiEvents: AIEvent[]
+  aiEvents: AIEvent[],
+  language: Language
 ): RevenueIntelligence {
+  const l = (en: string, ru: string) =>
+    translate(language, en, ru);
   const leadMap = new Map(
     leads.map((lead) => [lead.id, lead])
   );
@@ -726,116 +746,107 @@ function buildRevenueIntelligence(
     )
       ? {
           label: "Primary Executive Signal",
-          title: "Important deals need attention",
+          title: l("Important deals need attention", "Важные сделки требуют внимания"),
           detail:
-            "High-potential deals have waited too long while other work is building up.",
+            l("High-potential deals have waited too long while other work is building up.", "Сделки с высоким потенциалом ждут слишком долго, пока другая работа копится."),
           tone: "danger" as const,
         }
       : escalationLeadCount >= 2
       ? {
           label: "Primary Executive Signal",
-          title: "More deals now require human involvement",
+          title: l("More deals now require human involvement", "Нужна помощь человека"),
           detail:
-            "Several deals now need a person before they can move forward.",
+            l("Several deals now need a person before they can move forward.", "Часть сделок не двигается без ручного решения."),
           tone: "danger" as const,
         }
       : executionDecay
       ? {
           label: "Primary Executive Signal",
-          title: "Work is moving slower than expected",
+          title: l("Work is moving slower than expected", "Работа движется медленнее ожидаемого"),
           detail:
-            "Approved work is waiting longer than completed work.",
+            l("Approved work is waiting longer than completed work.", "Одобренная работа ждет дольше, чем завершается выполненная."),
           tone: "danger" as const,
         }
       : approvalCongestion || operationalImbalance
       ? {
           label: "Primary Executive Signal",
-          title: "Too many approvals are waiting",
+          title: l("Too many approvals are waiting", "Слишком много одобрений ждут"),
           detail:
-            "People are approving work slower than AVERON can execute it.",
+            l("People are approving work slower than AVERON can execute it.", "Люди одобряют работу медленнее, чем AVERON может ее выполнять."),
           tone: "attention" as const,
         }
       : completedRecently.length > stalledTasks.length
       ? {
           label: "Primary Executive Signal",
-          title: "Work is starting to move again",
+          title: l("Work is starting to move again", "Работа снова начинает двигаться"),
           detail:
-            "More work is getting completed than stuck.",
+            l("More work is getting completed than stuck.", "Завершается больше работы, чем застревает."),
           tone: "active" as const,
         }
       : {
           label: "Primary Executive Signal",
-          title: "Execution Stabilizing",
+          title: l("Execution Stabilizing", "Выполнение стабилизируется"),
           detail:
-            "No major issue is currently slowing the operation.",
+            l("No major issue is currently slowing the operation.", "Сейчас нет крупной проблемы, которая замедляет работу."),
           tone: "stable" as const,
         };
   const causalReasons = [
     stalledTasks.length > 0
-      ? `${stalledTasks.length} stalled workflow${
-          stalledTasks.length === 1 ? "" : "s"
-        } detected${
-          stalledLastSixHours.length > 0
-            ? `, ${stalledLastSixHours.length} updated in the last 6h`
-            : ""
-        }.`
+      ? l(`${stalledTasks.length} stalled workflow${stalledTasks.length === 1 ? "" : "s"} detected${stalledLastSixHours.length > 0 ? `, ${stalledLastSixHours.length} updated in the last 6h` : ""}.`, `${stalledTasks.length} застрявших процессов обнаружено${stalledLastSixHours.length > 0 ? `, ${stalledLastSixHours.length} обновлены за последние 6 ч` : ""}.`)
       : "",
     highIntentAgingLeads.length > 0
-      ? `${highIntentAgingLeads.length} important lead${
-          highIntentAgingLeads.length === 1 ? "" : "s"
-        } aged beyond 24h.`
+      ? l(`${highIntentAgingLeads.length} important lead${highIntentAgingLeads.length === 1 ? "" : "s"} aged beyond 24h.`, `${highIntentAgingLeads.length} важных лидов ждут больше 24 ч.`)
       : "",
     escalationLeadCount > 0
-      ? `${escalationLeadCount} lead path${
-          escalationLeadCount === 1 ? "" : "s"
-        } concentrated in escalation.`
+      ? l(`${escalationLeadCount} lead path${escalationLeadCount === 1 ? "" : "s"} concentrated in escalation.`, `${escalationLeadCount} путей лидов сосредоточены в эскалации.`)
       : "",
     staleApprovalTasks.length > 0
-      ? `${staleApprovalTasks.length} approval${
-          staleApprovalTasks.length === 1 ? "" : "s"
-        } waiting longer than 12h.`
+      ? l(`${staleApprovalTasks.length} approval${staleApprovalTasks.length === 1 ? "" : "s"} waiting longer than 12h.`, `${staleApprovalTasks.length} одобрений ждут больше 12 ч.`)
       : "",
     completedRecently.length > stalledTasks.length
-      ? `Work is recovering: ${completedRecently.length} completed vs ${stalledTasks.length} stalled.`
+      ? l(`Work is recovering: ${completedRecently.length} completed vs ${stalledTasks.length} stalled.`, `Работа восстанавливается: ${completedRecently.length} завершено против ${stalledTasks.length} застрявших.`)
       : "",
   ].filter(Boolean);
   const executiveActionPath =
-    primarySignal.title === "Important deals need attention"
+    systemicThreats.some(
+      (threat) =>
+        threat.title === "Important buyers are waiting too long"
+    )
       ? {
-          title: "Move important stuck deals to the top",
+          title: l("Move important stuck deals to the top", "Поднять важные застрявшие сделки наверх"),
           directive:
-            "Handle high-potential delayed deals before routine approvals.",
+            l("Handle high-potential delayed deals before routine approvals.", "Сначала разберите задержанные сделки с высоким потенциалом, потом рутинные одобрения."),
           href: "/dashboard/tasks",
           tone: "danger" as const,
         }
-      : primarySignal.title === "More deals now require human involvement"
+      : escalationLeadCount >= 2
       ? {
-          title: "Handle the deals waiting on people first",
+          title: l("Handle the deals waiting on people first", "Сначала разобрать сделки, которые ждут людей"),
           directive:
-            "Clear human blockers, then send eligible work back to AVERON.",
+            l("Clear human blockers, then send eligible work back to AVERON.", "Снимите человеческие блокеры, затем верните подходящую работу AVERON."),
           href: "/dashboard/tasks",
           tone: "danger" as const,
         }
-      : primarySignal.title === "Too many approvals are waiting"
+      : approvalCongestion || operationalImbalance
       ? {
-          title: "Let AVERON take routine approvals back",
+          title: l("Let AVERON take routine approvals back", "Вернуть рутинные одобрения AVERON"),
           directive:
-            "Reduce human workload by approving routine tasks in batches.",
+            l("Reduce human workload by approving routine tasks in batches.", "Снизьте нагрузку на людей, одобряя рутинные задачи пакетами."),
           href: "/dashboard/tasks",
           tone: "attention" as const,
         }
-      : primarySignal.title === "Work is starting to move again"
+      : completedRecently.length > stalledTasks.length
       ? {
-          title: "Move important active deals faster",
+          title: l("Move important active deals faster", "Ускорить важные активные сделки"),
           directive:
-            "Use the current momentum to push active deals forward.",
+            l("Use the current momentum to push active deals forward.", "Используйте текущий темп, чтобы продвинуть активные сделки."),
           href: "/dashboard/tasks",
           tone: "active" as const,
         }
       : {
-          title: "Keep watching and keep work moving",
+          title: l("Keep watching and keep work moving", "Продолжать наблюдение и движение работы"),
           directive:
-            "No major action is needed. Keep AVERON moving routine work.",
+            l("No major action is needed. Keep AVERON moving routine work.", "Крупных действий не нужно. Пусть AVERON продолжает рутинную работу."),
           href: "/dashboard/tasks",
           tone: "active" as const,
         };
@@ -870,29 +881,29 @@ function buildRevenueIntelligence(
   const coordinationPlan =
     enterpriseRecoveryCount > 0
       ? {
-          title: "High-potential stalled deals moved to the top",
+          title: l("High-potential stalled deals moved to the top", "Застрявшие сделки с высоким потенциалом подняты наверх"),
           directive:
-            "People should focus on important stuck deals while AVERON handles routine work.",
+            l("People should focus on important stuck deals while AVERON handles routine work.", "Люди должны заняться важными застрявшими сделками, пока AVERON ведет рутину."),
           tone: "danger" as const,
         }
       : humanInterventionLoad >= 5 && lowRiskApprovalCount > 0
       ? {
-          title: "Too many approvals are waiting",
+          title: l("Too many approvals are waiting", "Слишком много одобрений ждут"),
           directive:
-            "AVERON can take some routine approvals back so people are less overloaded.",
+            l("AVERON can take some routine approvals back so people are less overloaded.", "AVERON может забрать часть рутинных одобрений, чтобы разгрузить людей."),
           tone: "attention" as const,
         }
       : aiBandwidthAvailable
       ? {
-          title: "AVERON can carry more routine work",
+          title: l("AVERON can carry more routine work", "AVERON может взять больше рутинной работы"),
           directive:
-            "Routine work can stay with AVERON while people handle exceptions.",
+            l("Routine work can stay with AVERON while people handle exceptions.", "Рутина может оставаться у AVERON, пока люди занимаются исключениями."),
           tone: "active" as const,
         }
       : {
-          title: "Workload is balanced",
+          title: l("Workload is balanced", "Нагрузка сбалансирована"),
           directive:
-            "AVERON and people are carrying the right kinds of work.",
+            l("AVERON and people are carrying the right kinds of work.", "AVERON и люди ведут подходящие типы работы."),
           tone: "stable" as const,
         };
   const ownershipDirectives = [
@@ -936,34 +947,32 @@ function buildRevenueIntelligence(
   const executionPriorityPath = [
     enterpriseRecoveryCount > 0
       ? {
-          label: "1. Important stuck deals",
-          detail: `${enterpriseRecoveryCount} high-potential delayed path${
-            enterpriseRecoveryCount === 1 ? "" : "s"
-          } should be handled first.`,
+          label: l("1. Important stuck deals", "1. Важные застрявшие сделки"),
+          detail: l(`${enterpriseRecoveryCount} high-potential delayed path${enterpriseRecoveryCount === 1 ? "" : "s"} should be handled first.`, `${enterpriseRecoveryCount} задержанных путей с высоким потенциалом нужно разобрать первыми.`),
           tone: "danger" as const,
         }
       : null,
     escalatedTasks.length > 0
       ? {
-          label: "2. Deals needing people",
+          label: l("2. Deals needing people", "2. Сделки, где нужны люди"),
           detail:
-            "People should handle hard cases before routine approvals.",
+            l("People should handle hard cases before routine approvals.", "Сначала сложные случаи, потом рутинные одобрения."),
           tone: "attention" as const,
         }
       : null,
     lowRiskApprovalCount > 0
       ? {
-          label: "3. Routine approvals",
+          label: l("3. Routine approvals", "3. Рутинные одобрения"),
           detail:
-            "AVERON should take routine approvals back.",
+            l("AVERON should take routine approvals back.", "AVERON должен забрать рутинные одобрения."),
           tone: "active" as const,
         }
       : null,
     approvedTasks.length > 0
       ? {
-          label: "4. Active AVERON work",
+          label: l("4. Active AVERON work", "4. Активная работа AVERON"),
           detail:
-            "Keep delegated work moving and watch for slowdowns.",
+            l("Keep delegated work moving and watch for slowdowns.", "Двигайте делегированную работу и следите за замедлениями."),
           tone: "active" as const,
         }
       : null,
@@ -996,31 +1005,31 @@ function buildRevenueIntelligence(
         id: task.id,
         leadName: getLeadName(lead),
         state: escalated
-          ? "Escalated"
+          ? l("Escalated", "Передано человеку")
           : blocked
-          ? "Blocked"
+          ? l("Blocked", "Заблокировано")
           : stalled
-          ? "Stalled"
+          ? l("Stalled", "Застряло")
           : status === "approved"
-          ? "AI execution"
-          : "Awaiting approval",
+          ? l("AI execution", "AI выполняет")
+          : l("Awaiting approval", "Ждет одобрения"),
         urgency: lead?.urgency || task.priority || "normal",
         intent:
           typeof lead?.intent_score === "number"
             ? String(lead.intent_score)
             : "unknown",
-        waiting: formatWaitingTime(waitingTimestamp),
+        waiting: formatWaitingTime(waitingTimestamp, language),
         risk: highIntent
-          ? "High-intent decay risk"
+          ? l("High-intent decay risk", "Риск остывания высокого интента")
           : escalated || blocked
-          ? "Human blocker"
+          ? l("Human blocker", "Человеческий блокер")
           : stalled
-          ? "Workflow aging"
-          : "Execution queue",
+          ? l("Workflow aging", "Процесс стареет")
+          : l("Execution queue", "Очередь выполнения"),
         recommendation:
           lead?.recommendation ||
           task.task ||
-          "Continue revenue execution.",
+          l("Continue revenue execution.", "Продолжать выполнение revenue-задачи."),
         href: task.lead_id
           ? `/dashboard/leads/${task.lead_id}`
           : "/dashboard/tasks",
@@ -1048,7 +1057,7 @@ function buildRevenueIntelligence(
       tone: object.tone,
     }));
   const highestImpactWorkflow =
-    priorityObjects[0]?.leadName || "No active priority object";
+    priorityObjects[0]?.leadName || l("No active priority object", "Нет активного приоритетного объекта");
   const coordinationEvidence = {
     approvalsWaiting: pendingTasks.length,
     lowRiskApprovals: lowRiskApprovalCount,
@@ -1057,22 +1066,16 @@ function buildRevenueIntelligence(
     highestImpactWorkflow,
     expectedImpact: [
       lowRiskApprovalCount > 0
-        ? `${lowRiskApprovalCount} approval${
-            lowRiskApprovalCount === 1 ? "" : "s"
-          } recoverable by AI`
+        ? l(`${lowRiskApprovalCount} approval${lowRiskApprovalCount === 1 ? "" : "s"} recoverable by AI`, `${lowRiskApprovalCount} одобрений может забрать AI`)
         : "",
       escalatedTasks.length > 0
-        ? `${escalatedTasks.length} escalation${
-            escalatedTasks.length === 1 ? "" : "s"
-          } isolated for human review`
+        ? l(`${escalatedTasks.length} escalation${escalatedTasks.length === 1 ? "" : "s"} isolated for human review`, `${escalatedTasks.length} эскалаций оставлены для человека`)
         : "",
       stalledTasks.length > 0
-        ? `${stalledTasks.length} stalled workflow${
-            stalledTasks.length === 1 ? "" : "s"
-          } targeted for recovery`
+        ? l(`${stalledTasks.length} stalled workflow${stalledTasks.length === 1 ? "" : "s"} targeted for recovery`, `${stalledTasks.length} застрявших процессов взяты в восстановление`)
         : "",
       highIntentAgingLeads.length > 0
-        ? "high-intent response latency reduced"
+        ? l("high-intent response latency reduced", "задержка ответа по важным лидам снижена")
         : "",
     ].filter(Boolean),
   };
@@ -1120,7 +1123,7 @@ function buildRevenueIntelligence(
       causalReasons.length > 0
         ? causalReasons
         : [
-            "No dominant systemic pressure detected from current task, lead, and event state.",
+            l("No dominant systemic pressure detected from current task, lead, and event state.", "По текущим задачам, лидам и событиям нет главной системной проблемы."),
           ],
     executiveActionPath,
     coordinationPlan,
@@ -1130,9 +1133,9 @@ function buildRevenueIntelligence(
         ? executionPriorityPath
         : [
             {
-              label: "1. Maintain balanced execution",
+              label: l("1. Maintain balanced execution", "1. Сохранять сбалансированное выполнение"),
               detail:
-                "No redistribution is currently required; AI and human ownership remain stable.",
+                l("No redistribution is currently required; AI and human ownership remain stable.", "Перераспределение сейчас не нужно; зоны ответственности AI и людей стабильны."),
               tone: "active",
             },
           ],
@@ -1142,6 +1145,7 @@ function buildRevenueIntelligence(
 }
 
 export default function DashboardPage() {
+  const { language, t } = useLanguage();
   const [summary, setSummary] = useState<DashboardSummary>({});
   const [leads, setLeads] = useState<Lead[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1192,24 +1196,24 @@ export default function DashboardPage() {
   }, []);
 
   const intelligence =
-    buildRevenueIntelligence(leads, tasks, aiEvents);
+    buildRevenueIntelligence(leads, tasks, aiEvents, language);
 
   const attentionBlocks: WorkflowBlock[] = [
     {
-      title: "Execution Queue",
-      description: "Open tasks that need approval, completion, or routing.",
+      title: t("executionQueue"),
+      description: translate(language, "Open tasks that need approval, completion, or routing.", "Откройте задачи, которым нужно одобрение, завершение или новый маршрут."),
       href: "/dashboard/tasks",
       value: String(summary.tasksCount ?? 0),
-      label: "active tasks",
+      label: translate(language, "active tasks", "активных задач"),
       icon: CheckCircle2,
       tone: "attention",
     },
     {
-      title: "Lead Review",
-      description: "Inspect live leads before AI proceeds into next actions.",
+      title: t("leads"),
+      description: translate(language, "Inspect live leads before AI proceeds into next actions.", "Проверьте активных лидов перед следующим шагом AI."),
       href: "/dashboard/leads",
       value: String(summary.leadsCount ?? 0),
-      label: "tracked leads",
+      label: translate(language, "tracked leads", "лидов"),
       icon: Users,
       tone: "attention",
     },
@@ -1217,20 +1221,20 @@ export default function DashboardPage() {
 
   const momentumBlocks: WorkflowBlock[] = [
     {
-      title: "Pipeline Movement",
-      description: "Monitor where revenue work is progressing right now.",
+      title: translate(language, "Pipeline Movement", "Движение в pipeline"),
+      description: translate(language, "Monitor where revenue work is progressing right now.", "Смотрите, где revenue-работа движется прямо сейчас."),
       href: "/dashboard/leads",
       value: "$847K",
-      label: "pipeline value",
+      label: translate(language, "pipeline value", "pipeline"),
       icon: TrendingUp,
       tone: "momentum",
     },
     {
-      title: "Conversation Demand",
-      description: "Review buyer replies and AI-assisted revenue context.",
+      title: t("conversations"),
+      description: translate(language, "Review buyer replies and AI-assisted revenue context.", "Проверьте ответы покупателей и revenue-контекст от AI."),
       href: "/dashboard/conversations",
       value: String(summary.conversationsCount ?? 0),
-      label: "conversations",
+      label: t("conversations").toLowerCase(),
       icon: MessageSquare,
       tone: "momentum",
     },
@@ -1238,20 +1242,20 @@ export default function DashboardPage() {
 
   const executionBlocks: WorkflowBlock[] = [
     {
-      title: "Agent Network",
-      description: "View the autonomous roles coordinating revenue execution.",
+      title: t("aiAgents"),
+      description: translate(language, "View the autonomous roles coordinating revenue execution.", "Посмотрите автономные роли, которые координируют выполнение."),
       href: "/dashboard/agents",
       value: "4",
-      label: "active agents",
+      label: translate(language, "active agents", "активных агентов"),
       icon: Bot,
       tone: "execution",
     },
     {
-      title: "Live AI Work",
-      description: "Jump into current workflow orchestration and outcomes.",
+      title: translate(language, "Live AI Work", "Активная работа AI"),
+      description: translate(language, "Jump into current workflow orchestration and outcomes.", "Перейдите к текущим процессам и результатам."),
       href: "/dashboard/tasks",
       value: String(summary.tasksCount ?? 0),
-      label: "AI actions",
+      label: translate(language, "AI actions", "действий AI"),
       icon: CheckCircle2,
       tone: "execution",
     },
@@ -1262,22 +1266,21 @@ export default function DashboardPage() {
       <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">
-            Mission Control
+            {t("missionControl")}
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-6xl">
-            AI Revenue Execution System
+            {t("dashboardTitle")}
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-zinc-500">
-            One operating surface for attention, pipeline movement, and live AI
-            workflow execution.
+            {t("dashboardSubtitle")}
           </p>
         </div>
 
         <div className="operational-surface premium-card rounded-2xl border border-zinc-800 bg-zinc-950 px-5 py-4">
-          <div className="text-sm text-zinc-500">System Status</div>
+          <div className="text-sm text-zinc-500">{t("systemStatus")}</div>
           <div className="mt-2 flex items-center gap-2 text-sm font-semibold uppercase text-green-400">
             <span className="live-dot live-beacon h-2 w-2 rounded-full bg-green-400" />
-            Operational
+            {t("operational")}
           </div>
         </div>
       </header>
@@ -1286,20 +1289,20 @@ export default function DashboardPage() {
         <ExecutiveBriefing intelligence={intelligence} />
 
         <DashboardSection
-          eyebrow="Requires Attention"
-          title="Human decisions that unblock revenue execution"
+          eyebrow={translate(language, "Requires Attention", "Требует внимания")}
+          title={translate(language, "Human decisions that unblock revenue execution", "Решения человека, которые разблокируют revenue-работу")}
           blocks={attentionBlocks}
         />
 
         <DashboardSection
-          eyebrow="Revenue Momentum"
-          title="Where pipeline work is moving"
+          eyebrow={translate(language, "Revenue Momentum", "Движение revenue")}
+          title={translate(language, "Where pipeline work is moving", "Где сейчас движется pipeline")}
           blocks={momentumBlocks}
         />
 
         <DashboardSection
-          eyebrow="Live AI Execution"
-          title="Autonomous work currently carrying the system"
+          eyebrow={translate(language, "Live AI Execution", "Живое выполнение AI")}
+          title={translate(language, "Autonomous work currently carrying the system", "Автономная работа, которая сейчас держит систему")}
           blocks={executionBlocks}
         />
       </div>
@@ -1376,6 +1379,7 @@ function ExecutiveBriefing({
 }: {
   intelligence: RevenueIntelligence;
 }) {
+  const { language, t } = useLanguage();
   const visibleObjects =
     intelligence.priorityObjects.slice(0, 4);
 
@@ -1387,9 +1391,15 @@ function ExecutiveBriefing({
         )}`}
       >
         <div className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">
-          1. Primary Problem
+          1. {t("primaryProblem")}
         </div>
-        <h2 className="mt-3 text-4xl font-semibold tracking-tight md:text-6xl">
+        <h2
+          className={`mt-3 font-semibold tracking-tight ${
+            language === "ru"
+              ? "text-3xl leading-tight md:text-5xl md:leading-tight"
+              : "text-4xl md:text-6xl"
+          }`}
+        >
           {intelligence.primarySignal.title}
         </h2>
         <p className="mt-4 max-w-3xl text-lg leading-8 text-zinc-400">
@@ -1398,33 +1408,33 @@ function ExecutiveBriefing({
 
         <div className="mt-6 grid gap-3 md:grid-cols-4">
           <SignalEvidence
-            label="Stalled"
+            label={t("stalled")}
             value={String(
               intelligence.coordinationEvidence.stalledWorkflows
             )}
-            detail="workflows"
+            detail={t("workflows")}
           />
           <SignalEvidence
-            label="Approvals"
+            label={t("approvals")}
             value={String(
               intelligence.coordinationEvidence.approvalsWaiting
             )}
-            detail="waiting"
+            detail={t("waiting")}
           />
           <SignalEvidence
-            label="Escalated"
+            label={t("escalated")}
             value={String(
               intelligence.coordinationEvidence.escalations
             )}
-            detail="active"
+            detail={t("active").toLowerCase()}
           />
           <SignalEvidence
-            label="Top Path"
+            label={t("topPath")}
             value={
               intelligence.coordinationEvidence
                 .highestImpactWorkflow
             }
-            detail="affected"
+            detail={t("affected")}
           />
         </div>
       </div>
@@ -1437,7 +1447,7 @@ function ExecutiveBriefing({
         <div className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-[#00ffcc]" />
           <div className="text-sm font-semibold text-white">
-            3. What To Do
+            3. {t("whatToDo")}
           </div>
         </div>
 
@@ -1460,7 +1470,7 @@ function ExecutiveBriefing({
 
         <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
           <div className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-600">
-            5. Expected Impact
+            5. {t("expectedImpact")}
           </div>
           <div className="mt-2 space-y-1.5 text-xs leading-5 text-zinc-400">
             {intelligence.coordinationEvidence.expectedImpact.length > 0 ? (
@@ -1470,7 +1480,13 @@ function ExecutiveBriefing({
                 )
               )
             ) : (
-              <div>Maintain balanced execution pressure</div>
+              <div>
+                {translate(
+                  language,
+                  "Maintain balanced execution pressure",
+                  "Сохранять сбалансированную нагрузку"
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -1478,7 +1494,7 @@ function ExecutiveBriefing({
 
       <div className="operational-surface premium-card rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          2. Why
+          2. {t("why")}
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -1499,7 +1515,7 @@ function ExecutiveBriefing({
         )}`}
       >
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Coordination Plan
+          {t("coordinationPlan")}
         </div>
         <h3 className="mt-2 text-2xl font-semibold tracking-tight">
           {intelligence.coordinationPlan.title}
@@ -1532,7 +1548,7 @@ function ExecutiveBriefing({
       {visibleObjects.length > 0 && (
         <div className="xl:col-span-2">
           <div className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-600">
-            4. What Is Affected
+            4. {t("whatIsAffected")}
           </div>
           <div className="grid gap-3 xl:grid-cols-4">
             {visibleObjects.map((object) => (
@@ -1551,15 +1567,15 @@ function ExecutiveBriefing({
                 </div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-zinc-400">
                   <div>
-                    <span className="text-zinc-600">Urgency</span>
+                    <span className="text-zinc-600">{t("urgency")}</span>
                     <div>{object.urgency}</div>
                   </div>
                   <div>
-                    <span className="text-zinc-600">Intent</span>
+                    <span className="text-zinc-600">{t("intent")}</span>
                     <div>{object.intent}</div>
                   </div>
                   <div>
-                    <span className="text-zinc-600">Wait</span>
+                    <span className="text-zinc-600">{t("wait")}</span>
                     <div>{object.waiting}</div>
                   </div>
                 </div>

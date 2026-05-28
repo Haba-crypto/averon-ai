@@ -12,6 +12,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  type Language,
+  translate,
+  useLanguage,
+} from "@/lib/i18n/language";
+
 type TaskStatus =
   | "approved"
   | "completed"
@@ -79,53 +85,107 @@ type ExecutionIntelligence = {
 const queueGroups = [
   {
     key: "active",
-    title: "Active",
-    signal: "Latest operational recommendation",
+    titleKey: "active",
+    signalKey: "latestRecommendation",
     icon: UserCheck,
   },
   {
     key: "awaiting",
-    title: "Awaiting Approval",
-    signal: "AI awaiting operator decision",
+    titleKey: "awaitingApproval",
+    signalKey: "awaitingApproval",
     icon: UserCheck,
   },
   {
     key: "ready",
-    title: "Ready To Execute",
-    signal: "Execution authorized",
+    titleKey: "readyToExecute",
+    signalKey: "readyToExecute",
     icon: Play,
   },
   {
     key: "escalated",
-    title: "Escalated",
-    signal: "Human intervention required",
+    titleKey: "escalated",
+    signalKey: "escalated",
     icon: AlertTriangle,
   },
   {
     key: "blocked",
-    title: "Blocked",
-    signal: "Decision required before execution",
+    titleKey: "blocked",
+    signalKey: "blocked",
     icon: ShieldAlert,
   },
   {
     key: "completed",
-    title: "Completed Recently",
-    signal: "Workflow delegated",
+    titleKey: "completedRecently",
+    signalKey: "completedRecently",
     icon: CheckCircle2,
   },
   {
     key: "superseded",
-    title: "Superseded",
-    signal: "Replaced by newer recommendation",
+    titleKey: "superseded",
+    signalKey: "replacedRecommendation",
     icon: ShieldAlert,
   },
   {
     key: "archived",
-    title: "Archived",
-    signal: "Lower-priority operational context",
+    titleKey: "archived",
+    signalKey: "archived",
     icon: CheckCircle2,
   },
-];
+] as const;
+
+function localizeStatus(language: Language, status: string) {
+  const labels: Record<string, string> = {
+    approved: translate(language, "approved", "одобрено"),
+    completed: translate(language, "completed", "завершено"),
+    escalated: translate(language, "escalated", "передано человеку"),
+    blocked: translate(language, "blocked", "заблокировано"),
+    superseded: translate(language, "superseded", "заменено"),
+    archived: translate(language, "archived", "в архиве"),
+    pending: translate(language, "pending", "ожидает"),
+  };
+
+  return labels[status] || status;
+}
+
+function localizeOperationalText(language: Language, text: string) {
+  const labels: Record<string, string> = {
+    "Awaiting Human Decision": "Ждет решения человека",
+    "AI Executing Workflow": "AI выполняет процесс",
+    "Waiting On Buyer": "Ждет покупателя",
+    "Escalated To Human": "Передано человеку",
+    "Workflow Stalled": "Процесс застрял",
+    "Recently Completed": "Недавно завершено",
+    "Owned by AI": "Ведет AI",
+    "Owned by Human": "Ведет человек",
+    "Awaiting Buyer": "Ждет покупателя",
+    Escalated: "Передано человеку",
+    Healthy: "Стабильно",
+    "At Risk": "Есть риск",
+    Delayed: "Задержка",
+    "Execution completed moments ago": "Выполнение только что завершено",
+    "Completed execution path": "Путь выполнения завершен",
+    "Human intervention required too long": "Помощь человека требуется слишком долго",
+    "Human intervention required": "Нужна помощь человека",
+    "Attention required before execution can continue": "Нужно внимание, прежде чем работа продолжится",
+    "Approved but no execution trace yet": "Одобрено, но выполнения еще не видно",
+    "Waiting too long for operator decision": "Слишком долго ждет решения оператора",
+    "No buyer activity after AI follow-up": "Нет активности покупателя после follow-up от AI",
+    "Awaiting buyer response": "Ожидается ответ покупателя",
+    "Currently active and recently updated": "Активно и недавно обновлено",
+    "AI executing next step": "AI выполняет следующий шаг",
+    "High urgency decision waiting": "Срочное решение ждет",
+    "AI awaiting operator decision": "AI ждет решения оператора",
+    "Assigned to AI": "Назначено AI",
+    "Assigned to Human": "Назначено человеку",
+    "Awaiting Decision": "Ждет решения",
+    normal: "обычно",
+    high: "высокая",
+    medium: "средняя",
+    low: "низкая",
+  };
+
+  return language === "ru" ? labels[text] || text : text;
+}
 
 function getLeadName(lead?: Lead) {
   return (
@@ -435,6 +495,7 @@ function getWhyEscalated(task: QueueTask) {
 }
 
 export default function TasksPage() {
+  const { t } = useLanguage();
   const [tasks, setTasks] = useState<QueueTask[]>([]);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(
     new Set()
@@ -590,19 +651,19 @@ export default function TasksPage() {
       <header className="flex flex-col gap-6 border-b border-zinc-900 pb-8 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="text-sm font-semibold uppercase tracking-[0.22em] text-zinc-500">
-            Execution Queue
+            {t("executionQueue")}
           </div>
           <h1 className="mt-3 text-4xl font-semibold tracking-tight md:text-5xl">
-            Human-In-The-Loop Command
+            {t("humanCommandTitle")}
           </h1>
           <p className="mt-4 max-w-2xl text-lg leading-8 text-zinc-500">
-            Direct AI revenue work from approval to delegated execution.
+            {t("humanCommandSubtitle")}
           </p>
         </div>
 
         <div className="premium-card rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
           <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-            Selected
+            {t("selected")}
           </div>
           <div className="mt-2 text-3xl font-semibold">
             {selectedTaskIds.size}
@@ -612,26 +673,30 @@ export default function TasksPage() {
 
       <section className="mt-6 flex flex-wrap gap-2">
         <CommandButton
-          label="Approve Selected"
+          label={t("approveSelected")}
           loading={loadingAction === "approved"}
+          workingLabel={t("working")}
           icon={Check}
           onClick={() => void moveSelected("approved")}
         />
         <CommandButton
-          label="Execute Selected"
+          label={t("executeSelected")}
           loading={loadingAction === "completed"}
+          workingLabel={t("working")}
           icon={Play}
           onClick={() => void moveSelected("completed")}
         />
         <CommandButton
-          label="Escalate Selected"
+          label={t("escalateSelected")}
           loading={loadingAction === "escalated"}
+          workingLabel={t("working")}
           icon={AlertTriangle}
           onClick={() => void moveSelected("escalated")}
         />
         <CommandButton
-          label="Archive Selected"
+          label={t("archiveSelected")}
           loading={loadingAction === "archived"}
+          workingLabel={t("working")}
           icon={CheckCircle2}
           onClick={() => void moveSelected("archived")}
         />
@@ -649,11 +714,11 @@ export default function TasksPage() {
                   <div className="flex items-center gap-2">
                     <Icon className="h-4 w-4 text-zinc-500" />
                     <h2 className="text-2xl font-semibold">
-                      {group.title}
+                      {t(group.titleKey)}
                     </h2>
                   </div>
                   <p className="mt-1 text-sm text-zinc-500">
-                    {group.signal}
+                    {t(group.signalKey)}
                   </p>
                 </div>
                 <div className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-sm text-zinc-400">
@@ -679,7 +744,7 @@ export default function TasksPage() {
                   ))
                 ) : (
                   <div className="rounded-2xl border border-zinc-900 bg-zinc-950 p-5 text-sm text-zinc-500">
-                    No work currently in this queue.
+                    {t("emptyQueue")}
                   </div>
                 )}
               </div>
@@ -694,11 +759,13 @@ export default function TasksPage() {
 function CommandButton({
   label,
   loading,
+  workingLabel,
   icon: Icon,
   onClick,
 }: {
   label: string;
   loading: boolean;
+  workingLabel: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   onClick: () => void;
 }) {
@@ -709,7 +776,7 @@ function CommandButton({
       className="operational-surface flex h-11 items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-950 px-4 text-sm font-semibold text-zinc-200 hover:border-[#00ffcc]/30 hover:text-white"
     >
       <Icon className="h-4 w-4" />
-      {loading ? "Working" : label}
+      {loading ? workingLabel : label}
     </button>
   );
 }
@@ -727,6 +794,7 @@ function TaskCard({
   onToggle: () => void;
   lowSignal: boolean;
 }) {
+  const { language, t } = useLanguage();
   const status = getTaskStatus(task);
   const assignment = getAssignmentState(task);
   const intelligence =
@@ -788,7 +856,7 @@ function TaskCard({
               : "zinc"
           }
         >
-          {status}
+          {localizeStatus(language, status)}
         </Badge>
       </div>
 
@@ -804,7 +872,7 @@ function TaskCard({
               : "teal"
           }
         >
-          {intelligence.state}
+          {localizeOperationalText(language, intelligence.state)}
         </Badge>
         <Badge
           tone={
@@ -816,28 +884,28 @@ function TaskCard({
               : "green"
           }
         >
-          {intelligence.health}
+          {localizeOperationalText(language, intelligence.health)}
         </Badge>
         {recentlyUpdated && (
           <span className="flex items-center gap-1 rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-xs font-medium text-[#00ffcc]">
             <Clock3 className="h-3 w-3" />
-            Recently updated
+            {t("recentlyUpdated")}
           </span>
         )}
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
-        <Detail label="AI agent owner" value={task.assigned_agent || "AVERON AI"} />
-        <Detail label="Ownership" value={intelligence.owner} />
-        <Detail label="Urgency" value={task.lead?.urgency || task.priority || "normal"} />
-        <Detail label="Assignment" value={assignment} />
+        <Detail label={t("aiAgentOwner")} value={task.assigned_agent || "AVERON AI"} />
+        <Detail label={t("ownership")} value={localizeOperationalText(language, intelligence.owner)} />
+        <Detail label={t("urgency")} value={localizeOperationalText(language, task.lead?.urgency || task.priority || "normal")} />
+        <Detail label={t("assignment")} value={localizeOperationalText(language, assignment)} />
       </div>
 
       <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
         <div className="text-xs uppercase tracking-[0.16em] text-zinc-600">
           {status === "superseded"
-            ? "Replaced by newer recommendation"
-            : "Latest operational recommendation"}
+            ? t("replacedRecommendation")
+            : t("latestRecommendation")}
         </div>
         <p className="mt-2 line-clamp-2 text-sm leading-6 text-zinc-300">
           {task.description ||
@@ -848,21 +916,21 @@ function TaskCard({
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <Detail
-          label="Why AI escalated it"
+          label={t("whyEscalated")}
           value={getWhyEscalated(task)}
         />
         <Detail
-          label="Latest event"
+          label={t("latestEvent")}
           value={
             task.latestEvent?.message ||
-            "No AI event recorded yet."
+            t("noAiEvent")
           }
         />
       </div>
 
       <div className="mt-4 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">
         <Bot className="h-4 w-4" />
-        {intelligence.signal}
+        {localizeOperationalText(language, intelligence.signal)}
       </div>
 
       {(task.latestEvent?.type === "operational_routing" ||
