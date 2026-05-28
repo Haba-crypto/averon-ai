@@ -149,6 +149,232 @@ body {
 
 }
 
+/* COMMAND PRIORITY */
+
+.command-priority-critical,
+.command-priority-danger,
+.command-priority-active,
+.command-priority-stable,
+.command-priority-passive {
+
+  position:
+    relative;
+
+  overflow:
+    hidden;
+
+}
+
+.command-priority-critical {
+
+  background:
+    linear-gradient(180deg, rgba(255,74,74,0.12), rgba(255,255,255,0.018));
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.075),
+    inset 4px 0 0 rgba(255,83,83,0.58),
+    0 24px 80px rgba(0,0,0,0.42),
+    0 0 44px rgba(255,74,74,0.1);
+
+}
+
+.command-priority-danger {
+
+  background:
+    linear-gradient(180deg, rgba(255,178,74,0.095), rgba(255,255,255,0.018));
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.068),
+    inset 4px 0 0 rgba(255,197,86,0.48),
+    0 22px 70px rgba(0,0,0,0.38),
+    0 0 36px rgba(255,196,86,0.08);
+
+}
+
+.command-priority-active {
+
+  background:
+    linear-gradient(180deg, rgba(0,255,204,0.085), rgba(255,255,255,0.016));
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.065),
+    inset 4px 0 0 rgba(0,255,204,0.44),
+    0 22px 72px rgba(0,0,0,0.34),
+    0 0 34px rgba(0,255,204,0.075);
+
+}
+
+.command-priority-stable {
+
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.048), rgba(255,255,255,0.014));
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 14px 44px rgba(0,0,0,0.24);
+
+}
+
+.command-priority-passive {
+
+  opacity:
+    0.68;
+
+  filter:
+    saturate(0.72);
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.032),
+    0 10px 30px rgba(0,0,0,0.18);
+
+}
+
+.command-priority-critical::before,
+.command-priority-danger::before,
+.command-priority-active::before {
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  inset:
+    0;
+
+  pointer-events:
+    none;
+
+  background:
+    linear-gradient(
+      110deg,
+      transparent 0%,
+      rgba(255,255,255,0.045) 42%,
+      transparent 58%
+    );
+
+  transform:
+    translateX(-120%);
+
+  animation:
+    commandSweep 7.4s ease-in-out infinite;
+
+}
+
+.command-priority-critical::after {
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  inset:
+    -1px;
+
+  border-radius:
+    inherit;
+
+  border:
+    1px solid rgba(255,83,83,0.38);
+
+  opacity:
+    0.28;
+
+  pointer-events:
+    none;
+
+  animation:
+    commandPressure 2.9s ease-in-out infinite;
+
+}
+
+.command-priority-active::after {
+
+  content:
+    "";
+
+  position:
+    absolute;
+
+  right:
+    14px;
+
+  top:
+    14px;
+
+  width:
+    7px;
+
+  height:
+    7px;
+
+  border-radius:
+    9999px;
+
+  background:
+    rgba(0,255,204,0.95);
+
+  box-shadow:
+    0 0 0 5px rgba(0,255,204,0.08),
+    0 0 22px rgba(0,255,204,0.28);
+
+  animation:
+    livePulse 2.2s ease-in-out infinite;
+
+}
+
+.command-action {
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 14px 42px rgba(0,0,0,0.28);
+
+}
+
+.command-action:hover {
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.1),
+    0 24px 70px rgba(0,0,0,0.44),
+    0 0 0 1px rgba(0,255,204,0.1);
+
+}
+
+@keyframes commandSweep {
+
+  0%,
+  58% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+
+  72% {
+    opacity: 0.72;
+  }
+
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+
+}
+
+@keyframes commandPressure {
+
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.55;
+    transform: scale(1.01);
+  }
+
+}
+
 .message-surface {
 
   animation:

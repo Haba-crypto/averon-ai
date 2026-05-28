@@ -31,6 +31,7 @@ type Lead = {
   deal_risk?: string;
   recommendation?: string;
   close_probability?: number;
+  updated_at?: string;
 };
 
 type Message = {
@@ -50,6 +51,17 @@ type AIEvent = {
   created_at: string;
 };
 
+type WorkflowTask = {
+  id: string;
+  lead_id?: string | null;
+  title?: string | null;
+  task?: string | null;
+  priority?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 type WorkflowAction = "approve" | "run";
 
 type WorkflowActionStatus = {
@@ -60,6 +72,11 @@ type WorkflowActionStatus = {
 };
 
 const eventSequence = [
+  "task_approved",
+  "task_executed",
+  "task_escalated",
+  "task_blocked",
+  "task_archived",
   "signal",
   "classification",
   "objection",
@@ -70,6 +87,37 @@ const eventSequence = [
 
 function getOperationalEventLabel(type: string) {
   const normalizedType = type.toLowerCase();
+
+  if (normalizedType === "task_approved") {
+    return "AI Executing Next Step";
+  }
+
+  if (normalizedType === "task_executed") {
+    return "Execution Completed";
+  }
+
+  if (normalizedType === "task_escalated") {
+    return "Human Review Required";
+  }
+
+  if (normalizedType === "task_blocked") {
+    return "Workflow Delayed";
+  }
+
+  if (normalizedType === "task_archived") {
+    return "Archived Operational Task";
+  }
+
+  if (normalizedType === "workflow_superseded") {
+    return "Workflow Superseded";
+  }
+
+  if (
+    normalizedType === "workflow_run_requested" ||
+    normalizedType === "workflow_state_propagated"
+  ) {
+    return "AI Executing Next Step";
+  }
 
   if (normalizedType.includes("signal")) {
     return "Signal Detected";
@@ -101,6 +149,82 @@ function getOperationalEventLabel(type: string) {
   return type.replaceAll("_", " ");
 }
 
+function getOperationalEventMeta(type: string) {
+  const normalizedType = type.toLowerCase();
+
+  if (normalizedType === "task_approved") {
+    return {
+      origin: "Operator",
+      state: "AI executing next step",
+      source: "Approve Selected",
+    };
+  }
+
+  if (normalizedType === "task_executed") {
+    return {
+      origin: "Operator",
+      state: "Execution completed",
+      source: "Execute Selected",
+    };
+  }
+
+  if (normalizedType === "task_escalated") {
+    return {
+      origin: "Operator",
+      state: "Human intervention required",
+      source: "Escalate Selected",
+    };
+  }
+
+  if (normalizedType === "task_blocked") {
+    return {
+      origin: "Operator",
+      state: "Workflow delayed",
+      source: "Task status",
+    };
+  }
+
+  if (normalizedType === "task_archived") {
+    return {
+      origin: "Operator",
+      state: "Operational context archived",
+      source: "Archive Selected",
+    };
+  }
+
+  if (normalizedType === "workflow_superseded") {
+    return {
+      origin: "AI Operations",
+      state: "Replaced by newer recommendation",
+      source: "Task lifecycle",
+    };
+  }
+
+  if (normalizedType === "workflow_run_requested") {
+    return {
+      origin: "Operator",
+      state: "AI executing next step",
+      source: "Run",
+    };
+  }
+
+  if (normalizedType === "workflow_state_propagated") {
+    return {
+      origin: "AI Operations",
+      state: "Operational state updated",
+      source: "Workflow propagation",
+    };
+  }
+
+  return {
+    origin: normalizedType.includes("task")
+      ? "Operator"
+      : "AI Operations",
+    state: "Recorded",
+    source: type,
+  };
+}
+
 function getOperationalEventOrder(type: string) {
   const normalizedType = type.toLowerCase();
   const index = eventSequence.findIndex((item) =>
@@ -119,6 +243,177 @@ function getEventTime(createdAt: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(createdAt));
+}
+
+function getHoursSince(timestamp?: string | null) {
+  if (!timestamp) {
+    return 0;
+  }
+
+  return (
+    (Date.now() - new Date(timestamp).getTime()) /
+    1000 /
+    60 /
+    60
+  );
+}
+
+function isTaskClosed(task: WorkflowTask) {
+  return (
+    task.status === "completed" ||
+    task.status === "superseded" ||
+    task.status === "archived"
+  );
+}
+
+function getLeadExecutionIntelligence({
+  events,
+  lead,
+  messages,
+  tasks,
+}: {
+  events: AIEvent[];
+  lead: Lead;
+  messages: Message[];
+  tasks: WorkflowTask[];
+}) {
+  const latestEvent =
+    [...events].sort(
+      (left, right) =>
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime()
+    )[0] || null;
+  const latestMessage =
+    messages[messages.length - 1];
+  const activeTasks =
+    tasks.filter((task) => !isTaskClosed(task));
+  const primaryTask =
+    activeTasks[0] || tasks[0] || null;
+  const taskAgeHours =
+    getHoursSince(
+      primaryTask?.updated_at ||
+        primaryTask?.created_at ||
+        lead.updated_at
+    );
+  const latestType =
+    latestEvent?.type?.toLowerCase() || "";
+  const highUrgency =
+    lead.urgency === "high" ||
+    primaryTask?.priority === "high";
+
+  if (
+    primaryTask?.status === "escalated" ||
+    latestType === "task_escalated"
+  ) {
+    return {
+      state: "Escalated To Human",
+      health: "Escalated",
+      owner: "Escalated",
+      waiting: "Human review required",
+      tone: "danger",
+    };
+  }
+
+  if (
+    primaryTask?.status === "blocked" ||
+    latestType === "task_blocked"
+  ) {
+    return {
+      state: "Workflow Stalled",
+      health: "Delayed",
+      owner: "Owned by Human",
+      waiting: "Attention required",
+      tone: "attention",
+    };
+  }
+
+  if (
+    primaryTask?.status === "pending" &&
+    taskAgeHours > 24
+  ) {
+    return {
+      state: "Workflow Stalled",
+      health: "Delayed",
+      owner: "Owned by Human",
+      waiting: "Waiting too long",
+      tone: "attention",
+    };
+  }
+
+  if (
+    primaryTask?.status === "approved" &&
+    taskAgeHours > 12 &&
+    latestType !== "task_executed"
+  ) {
+    return {
+      state: "Workflow Stalled",
+      health: "Delayed",
+      owner: "Owned by AI",
+      waiting: "Execution trace overdue",
+      tone: "attention",
+    };
+  }
+
+  if (
+    primaryTask?.status === "completed" ||
+    latestType === "task_executed"
+  ) {
+    return {
+      state: "Recently Completed",
+      health: "Healthy",
+      owner: "Owned by AI",
+      waiting: "Execution completed",
+      tone: "complete",
+    };
+  }
+
+  if (
+    latestMessage?.role === "assistant" &&
+    getHoursSince(lead.updated_at) > 24
+  ) {
+    return {
+      state: "Waiting On Buyer",
+      health: "Delayed",
+      owner: "Awaiting Buyer",
+      waiting: "Awaiting buyer response",
+      tone: "attention",
+    };
+  }
+
+  if (latestMessage?.role === "assistant") {
+    return {
+      state: "Waiting On Buyer",
+      health: "Healthy",
+      owner: "Awaiting Buyer",
+      waiting: "Awaiting buyer response",
+      tone: "active",
+    };
+  }
+
+  if (
+    primaryTask?.status === "approved" ||
+    latestType === "task_approved" ||
+    latestType === "workflow_run_requested" ||
+    latestType === "workflow_state_propagated"
+  ) {
+    return {
+      state: "AI Executing Workflow",
+      health: highUrgency ? "At Risk" : "Healthy",
+      owner: "Owned by AI",
+      waiting: "AI executing next step",
+      tone: "active",
+    };
+  }
+
+  return {
+    state: "Awaiting Human Decision",
+    health: highUrgency ? "At Risk" : "Healthy",
+    owner: "Owned by Human",
+    waiting: highUrgency
+      ? "High urgency decision waiting"
+      : "Operator decision required",
+    tone: highUrgency ? "attention" : "passive",
+  };
 }
 
 function buildReasoningItems(lead: Lead) {
@@ -219,6 +514,9 @@ export default function LeadPage() {
 
   const [workflowTaskCount, setWorkflowTaskCount] =
     useState(0);
+
+  const [workflowTasks, setWorkflowTasks] =
+    useState<WorkflowTask[]>([]);
 
   const knownEventIdsRef =
     useRef<Set<string>>(new Set());
@@ -354,16 +652,18 @@ export default function LeadPage() {
         const tasksData =
           await tasksRes.json();
 
+        const leadTasks = (
+          tasksData.tasks || []
+        ).filter(
+          (task: WorkflowTask) =>
+            task.lead_id === leadId
+        );
+
+        setWorkflowTasks(leadTasks);
         setWorkflowTaskCount(
-          (
-            tasksData.tasks || []
-          ).filter(
-            (task: {
-              lead_id?: string | null;
-              status?: string | null;
-            }) =>
-              task.lead_id === leadId &&
-              task.status !== "completed"
+          leadTasks.filter(
+            (task: WorkflowTask) =>
+              !isTaskClosed(task)
           ).length
         );
 
@@ -583,16 +883,18 @@ export default function LeadPage() {
         eventData.events || [],
         true
       );
+      const leadTasks = (
+        tasksData.tasks || []
+      ).filter(
+        (task: WorkflowTask) =>
+          task.lead_id === leadId
+      );
+
+      setWorkflowTasks(leadTasks);
       setWorkflowTaskCount(
-        (
-          tasksData.tasks || []
-        ).filter(
-          (task: {
-            lead_id?: string | null;
-            status?: string | null;
-          }) =>
-            task.lead_id === leadId &&
-            task.status !== "completed"
+        leadTasks.filter(
+          (task: WorkflowTask) =>
+            !isTaskClosed(task)
         ).length
       );
     } catch (error) {
@@ -776,7 +1078,7 @@ export default function LeadPage() {
     const rightTime = new Date(right.created_at).getTime();
 
     if (leftTime !== rightTime) {
-      return leftTime - rightTime;
+      return rightTime - leftTime;
     }
 
     return (
@@ -787,6 +1089,27 @@ export default function LeadPage() {
 
   const reasoningItems =
     buildReasoningItems(lead);
+
+  const executionIntelligence =
+    getLeadExecutionIntelligence({
+      events,
+      lead,
+      messages,
+      tasks: workflowTasks,
+    });
+
+  const executionToneClasses = {
+    active:
+      "border-[#00ffcc]/25 bg-[#00ffcc]/[0.065] shadow-[0_0_34px_rgba(0,255,204,0.08)]",
+    attention:
+      "border-yellow-300/25 bg-yellow-300/[0.06] shadow-[0_0_30px_rgba(250,204,21,0.06)]",
+    danger:
+      "border-red-300/25 bg-red-300/[0.055] shadow-[0_0_30px_rgba(248,113,113,0.06)]",
+    complete:
+      "border-green-300/20 bg-green-300/[0.05]",
+    passive:
+      "border-white/10 bg-white/[0.025]",
+  }[executionIntelligence.tone];
 
   return (
 
@@ -1233,6 +1556,69 @@ export default function LeadPage() {
 
           </div>
 
+          <div
+            className={`operational-surface premium-card mb-4 rounded-2xl border p-4 transition ${
+              executionToneClasses
+            } ${
+              executionIntelligence.tone === "active" ||
+              executionIntelligence.tone === "attention"
+                ? "execution-pulse"
+                : ""
+            }`}
+          >
+
+            <div className="mb-3 flex items-center justify-between gap-3">
+
+              <div className="text-sm text-zinc-500">
+
+                Execution State
+
+              </div>
+
+              <div className="rounded-full border border-white/10 bg-black/25 px-2.5 py-1 text-[11px] font-medium text-zinc-300">
+
+                {executionIntelligence.health}
+
+              </div>
+
+            </div>
+
+            <div className="text-lg font-semibold text-white">
+
+              {executionIntelligence.state}
+
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+
+                <div className="text-zinc-600">
+                  Owner
+                </div>
+
+                <div className="mt-1 font-medium text-zinc-300">
+                  {executionIntelligence.owner}
+                </div>
+
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+
+                <div className="text-zinc-600">
+                  Waiting
+                </div>
+
+                <div className="mt-1 font-medium text-zinc-300">
+                  {executionIntelligence.waiting}
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
           {/* RECOMMENDATION */}
 
           <div
@@ -1568,7 +1954,13 @@ export default function LeadPage() {
                   (
                     event,
                     index
-                  ) => (
+                  ) => {
+                    const eventMeta =
+                      getOperationalEventMeta(
+                        event.type
+                      );
+
+                    return (
 
                     <div
                       key={
@@ -1615,9 +2007,19 @@ export default function LeadPage() {
 
                       </div>
 
-                      <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-zinc-600">
+                      <div className="mb-2 grid gap-1 text-[11px] uppercase tracking-[0.16em] text-zinc-600">
 
-                        Source: {event.type}
+                        <div>
+                          Source: {eventMeta.source}
+                        </div>
+
+                        <div>
+                          Origin: {eventMeta.origin}
+                        </div>
+
+                        <div>
+                          State: {eventMeta.state}
+                        </div>
 
                       </div>
 
@@ -1629,7 +2031,8 @@ export default function LeadPage() {
 
                     </div>
 
-                  )
+                  );
+                  }
                 )
 
               )}

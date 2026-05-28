@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   CheckCircle2,
+  Clock3,
   Play,
   ShieldAlert,
   UserCheck,
@@ -30,6 +31,7 @@ type Task = {
   status?: string | null;
   assigned_agent?: string | null;
   created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type Lead = {
@@ -41,6 +43,7 @@ type Lead = {
   deal_risk?: string | null;
   recommendation?: string | null;
   ai_notes?: string | null;
+  updated_at?: string | null;
 };
 
 type AIEvent = {
@@ -53,6 +56,24 @@ type AIEvent = {
 type QueueTask = Task & {
   lead?: Lead;
   latestEvent?: AIEvent;
+};
+
+type ExecutionIntelligence = {
+  state:
+    | "Awaiting Human Decision"
+    | "AI Executing Workflow"
+    | "Waiting On Buyer"
+    | "Escalated To Human"
+    | "Workflow Stalled"
+    | "Recently Completed";
+  owner:
+    | "Owned by AI"
+    | "Owned by Human"
+    | "Awaiting Buyer"
+    | "Escalated";
+  health: "Healthy" | "At Risk" | "Delayed" | "Escalated";
+  signal: string;
+  tone: "active" | "attention" | "danger" | "complete" | "passive";
 };
 
 const queueGroups = [
@@ -189,6 +210,185 @@ function getQueueKey(task: QueueTask) {
   return "awaiting";
 }
 
+function getHoursSince(timestamp?: string | null) {
+  if (!timestamp) {
+    return 0;
+  }
+
+  return (
+    (Date.now() - new Date(timestamp).getTime()) /
+    1000 /
+    60 /
+    60
+  );
+}
+
+function isRecentlyUpdated(task: QueueTask) {
+  return (
+    getHoursSince(
+      task.latestEvent?.created_at ||
+        task.updated_at ||
+        task.created_at
+    ) <= 2
+  );
+}
+
+function hasExecutionEvent(task: QueueTask) {
+  const eventType =
+    task.latestEvent?.type || "";
+
+  return (
+    eventType === "task_executed" ||
+    eventType === "workflow_state_propagated"
+  );
+}
+
+function getExecutionIntelligence(task: QueueTask): ExecutionIntelligence {
+  const status = getTaskStatus(task);
+  const ageHours =
+    getHoursSince(task.updated_at || task.created_at);
+  const routingText = getRoutingText(task);
+  const latestType =
+    task.latestEvent?.type?.toLowerCase() || "";
+  const highUrgency =
+    task.lead?.urgency === "high" ||
+    task.priority === "high";
+
+  if (status === "completed") {
+    return {
+      state: "Recently Completed",
+      owner: "Owned by AI",
+      health: "Healthy",
+      signal: isRecentlyUpdated(task)
+        ? "Execution completed moments ago"
+        : "Completed execution path",
+      tone: "complete",
+    };
+  }
+
+  if (
+    status === "escalated" ||
+    latestType === "task_escalated" ||
+    routingText.includes("human intervention")
+  ) {
+    return {
+      state: "Escalated To Human",
+      owner: "Escalated",
+      health: "Escalated",
+      signal:
+        ageHours > 8
+          ? "Human intervention required too long"
+          : "Human intervention required",
+      tone: "danger",
+    };
+  }
+
+  if (status === "blocked") {
+    return {
+      state: "Workflow Stalled",
+      owner: "Owned by Human",
+      health: "Delayed",
+      signal: "Attention required before execution can continue",
+      tone: "attention",
+    };
+  }
+
+  if (
+    status === "approved" &&
+    !hasExecutionEvent(task) &&
+    ageHours > 12
+  ) {
+    return {
+      state: "Workflow Stalled",
+      owner: "Owned by AI",
+      health: "Delayed",
+      signal: "Approved but no execution trace yet",
+      tone: "attention",
+    };
+  }
+
+  if (status === "pending" && ageHours > 24) {
+    return {
+      state: "Workflow Stalled",
+      owner: "Owned by Human",
+      health: "Delayed",
+      signal: "Waiting too long for operator decision",
+      tone: "attention",
+    };
+  }
+
+  if (
+    routingText.includes("buyer") ||
+    routingText.includes("follow-up") ||
+    routingText.includes("follow up")
+  ) {
+    return {
+      state: "Waiting On Buyer",
+      owner: "Awaiting Buyer",
+      health: ageHours > 24 ? "Delayed" : "Healthy",
+      signal:
+        ageHours > 24
+          ? "No buyer activity after AI follow-up"
+          : "Awaiting buyer response",
+      tone: ageHours > 24 ? "attention" : "active",
+    };
+  }
+
+  if (
+    status === "approved" ||
+    getQueueKey(task) === "active"
+  ) {
+    return {
+      state: "AI Executing Workflow",
+      owner: "Owned by AI",
+      health: highUrgency ? "At Risk" : "Healthy",
+      signal: isRecentlyUpdated(task)
+        ? "Currently active and recently updated"
+        : "AI executing next step",
+      tone: "active",
+    };
+  }
+
+  return {
+    state: "Awaiting Human Decision",
+    owner: "Owned by Human",
+    health: highUrgency ? "At Risk" : "Healthy",
+    signal: highUrgency
+      ? "High urgency decision waiting"
+      : "AI awaiting operator decision",
+    tone: highUrgency ? "attention" : "passive",
+  };
+}
+
+function getExecutionPriority(task: QueueTask) {
+  const intelligence =
+    getExecutionIntelligence(task);
+  const urgencyScore =
+    task.lead?.urgency === "high" || task.priority === "high"
+      ? 40
+      : 0;
+  const passivePenalty =
+    getTaskStatus(task) === "completed" ||
+    getTaskStatus(task) === "superseded" ||
+    getTaskStatus(task) === "archived"
+      ? -200
+      : 0;
+
+  return (
+    (intelligence.state === "Workflow Stalled" ? 140 : 0) +
+    (intelligence.state === "Escalated To Human" ? 125 : 0) +
+    (intelligence.state === "AI Executing Workflow" ? 90 : 0) +
+    (intelligence.health === "At Risk" ? 60 : 0) +
+    (isRecentlyUpdated(task) ? 35 : 0) +
+    urgencyScore +
+    passivePenalty +
+    Math.min(
+      getHoursSince(task.updated_at || task.created_at),
+      48
+    )
+  );
+}
+
 function getAssignmentState(task: QueueTask) {
   const status = getTaskStatus(task);
   const queueKey = getQueueKey(task);
@@ -311,6 +511,10 @@ export default function TasksPage() {
       (groups, group) => {
         groups[group.key] = tasks.filter(
           (task) => getQueueKey(task) === group.key
+        ).sort(
+          (left, right) =>
+            getExecutionPriority(right) -
+            getExecutionPriority(left)
         );
         return groups;
       },
@@ -525,14 +729,32 @@ function TaskCard({
 }) {
   const status = getTaskStatus(task);
   const assignment = getAssignmentState(task);
+  const intelligence =
+    getExecutionIntelligence(task);
+  const recentlyUpdated =
+    isRecentlyUpdated(task);
+  const intelligenceBorder = {
+    active:
+      "command-priority-active border-[#00ffcc]/30 shadow-[0_0_30px_rgba(0,255,204,0.06)]",
+    attention:
+      "command-priority-danger border-yellow-300/30 shadow-[0_0_30px_rgba(250,204,21,0.05)]",
+    danger:
+      "command-priority-critical border-red-300/35 shadow-[0_0_36px_rgba(248,113,113,0.08)]",
+    complete: "command-priority-stable border-green-300/16",
+    passive: "command-priority-passive border-zinc-900",
+  }[intelligence.tone];
 
   return (
     <article
       className={`operational-surface premium-card rounded-2xl border bg-zinc-950 p-5 ${
         selected
           ? "border-[#00ffcc]/35 shadow-[0_0_34px_rgba(0,255,204,0.08)]"
-          : "border-zinc-800"
-      } ${recentlyMoved ? "message-surface execution-pulse" : ""} ${
+          : intelligenceBorder
+      } ${
+        recentlyMoved || recentlyUpdated
+          ? "message-surface execution-pulse"
+          : ""
+      } ${
         lowSignal ? "opacity-70" : ""
       }`}
     >
@@ -554,16 +776,61 @@ function TaskCard({
           </div>
         </label>
 
-        <Badge tone={status === "completed" ? "green" : "zinc"}>
+        <Badge
+          tone={
+            intelligence.health === "Escalated"
+              ? "red"
+              : intelligence.health === "Delayed" ||
+                intelligence.health === "At Risk"
+              ? "yellow"
+              : status === "completed"
+              ? "green"
+              : "zinc"
+          }
+        >
           {status}
         </Badge>
       </div>
 
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Badge
+          tone={
+            intelligence.tone === "danger"
+              ? "red"
+              : intelligence.tone === "attention"
+              ? "yellow"
+              : intelligence.tone === "complete"
+              ? "green"
+              : "teal"
+          }
+        >
+          {intelligence.state}
+        </Badge>
+        <Badge
+          tone={
+            intelligence.health === "Escalated"
+              ? "red"
+              : intelligence.health === "Delayed" ||
+                intelligence.health === "At Risk"
+              ? "yellow"
+              : "green"
+          }
+        >
+          {intelligence.health}
+        </Badge>
+        {recentlyUpdated && (
+          <span className="flex items-center gap-1 rounded-full border border-[#00ffcc]/20 bg-[#00ffcc]/10 px-2.5 py-1 text-xs font-medium text-[#00ffcc]">
+            <Clock3 className="h-3 w-3" />
+            Recently updated
+          </span>
+        )}
+      </div>
+
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         <Detail label="AI agent owner" value={task.assigned_agent || "AVERON AI"} />
-        <Detail label="Assignment" value={assignment} />
+        <Detail label="Ownership" value={intelligence.owner} />
         <Detail label="Urgency" value={task.lead?.urgency || task.priority || "normal"} />
-        <Detail label="Execution status" value={status} />
+        <Detail label="Assignment" value={assignment} />
       </div>
 
       <div className="mt-4 rounded-xl border border-white/10 bg-black/25 p-3">
@@ -595,19 +862,13 @@ function TaskCard({
 
       <div className="mt-4 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-zinc-600">
         <Bot className="h-4 w-4" />
-        {status === "pending" && "AI awaiting operator decision"}
-        {status === "approved" && "Execution authorized"}
-        {status === "completed" && "Workflow delegated"}
-        {status === "escalated" && "Human intervention required"}
-        {status === "blocked" && "Execution blocked"}
-        {status === "superseded" && "Replaced by newer recommendation"}
-        {status === "archived" && "Archived operational context"}
+        {intelligence.signal}
       </div>
 
       {(task.latestEvent?.type === "operational_routing" ||
         task.latestEvent?.type === "queue_routing") && (
 
-        <div className="mt-3 rounded-xl border border-[#00ffcc]/15 bg-[#00ffcc]/[0.05] px-3 py-2 text-xs leading-5 text-[#00ffcc]/90">
+        <div className="mt-3 rounded-xl border border-[#00ffcc]/20 bg-[#00ffcc]/[0.065] px-3 py-2 text-xs leading-5 text-[#00ffcc]/90 shadow-[0_12px_36px_rgba(0,255,204,0.04)]">
 
           {task.latestEvent.message}
 
@@ -642,13 +903,19 @@ function Badge({
   tone,
 }: {
   children: React.ReactNode;
-  tone: "green" | "zinc";
+  tone: "green" | "zinc" | "teal" | "yellow" | "red";
 }) {
   return (
     <span
       className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${
         tone === "green"
           ? "border-green-400/20 bg-green-400/10 text-green-300"
+          : tone === "teal"
+          ? "border-[#00ffcc]/20 bg-[#00ffcc]/10 text-[#00ffcc]"
+          : tone === "yellow"
+          ? "border-yellow-300/20 bg-yellow-300/10 text-yellow-200"
+          : tone === "red"
+          ? "border-red-300/20 bg-red-300/10 text-red-200"
           : "border-zinc-700 bg-zinc-900 text-zinc-300"
       }`}
     >

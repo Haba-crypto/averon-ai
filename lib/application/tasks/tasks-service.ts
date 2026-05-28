@@ -78,13 +78,37 @@ export async function updateTaskStatus({
   }
 
   if (task?.lead_id) {
-    const eventMessage = {
-      approved: "Execution authorized by operator",
-      completed: "Workflow delegated to execution",
-      escalated: "Human intervention required",
-      blocked: "Execution blocked pending operator review",
-      superseded: "Workflow superseded by newer recommendation",
-      archived: "Workflow archived by operator",
+    const eventConfig = {
+      approved: {
+        type: "task_approved",
+        message:
+          "Execution authorized by operator",
+      },
+      completed: {
+        type: "task_executed",
+        message:
+          "Workflow executed by operator",
+      },
+      escalated: {
+        type: "task_escalated",
+        message:
+          "Escalated to human operator",
+      },
+      blocked: {
+        type: "task_blocked",
+        message:
+          "Execution blocked pending operator review",
+      },
+      superseded: {
+        type: "workflow_superseded",
+        message:
+          "Workflow superseded by newer recommendation",
+      },
+      archived: {
+        type: "task_archived",
+        message:
+          "Archived operational task",
+      },
     }[status];
 
     const { error: eventError } = await supabase
@@ -92,8 +116,10 @@ export async function updateTaskStatus({
       .insert({
         lead_id: task.lead_id,
         organization_id: organizationId,
-        type: `task_${status}`,
-        message: eventMessage,
+        type: eventConfig.type,
+        message: `${eventConfig.message}. Task: ${
+          task.task || task.title || task.id
+        }`,
       });
 
     if (eventError) {
