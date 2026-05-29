@@ -603,6 +603,10 @@ function normalizeAgentDecision(
     return normalizeContinuationBlockedDecision(row);
   }
 
+  if (row.decision_type === "priority_evaluated") {
+    return normalizePriorityEvaluatedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -1132,6 +1136,67 @@ function normalizeControlledContinuationProcessedDecision(
   };
 }
 
+function normalizePriorityEvaluatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const schedulingBucket =
+    getReviewString(row.metadata, "scheduling_bucket") ??
+    getReviewString(outcome, "scheduling_bucket") ??
+    "later";
+  const priorityScore =
+    getNumber(row.metadata, "priority_score") ??
+    getNumber(outcome, "priority_score") ??
+    0;
+  const rationale =
+    getReviewString(row.metadata, "rationale") ??
+    getReviewString(outcome, "rationale") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Priority Evaluated",
+    message: `Priority evaluated: ${schedulingBucket} with score ${priorityScore}.`,
+    status: schedulingBucket,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      priority_score: priorityScore,
+      urgency_score:
+        getNumber(row.metadata, "urgency_score") ??
+        getNumber(outcome, "urgency_score"),
+      business_impact_score:
+        getNumber(row.metadata, "business_impact_score") ??
+        getNumber(outcome, "business_impact_score"),
+      risk_score:
+        getNumber(row.metadata, "risk_score") ??
+        getNumber(outcome, "risk_score"),
+      scheduling_bucket: schedulingBucket,
+      recommended_execution_order:
+        getNumber(row.metadata, "recommended_execution_order") ??
+        getNumber(outcome, "recommended_execution_order"),
+      rationale,
+      signals:
+        getArray(row.metadata, "signals") ??
+        getArray(outcome, "signals"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
 function normalizeContinuationBlockedDecision(
   row: AgentDecisionRow
 ): WorkItemTimelineItem {
@@ -1453,6 +1518,22 @@ function normalizeExecutionQueue(
         getReviewString(row.metadata, "continuation_reason"),
       continuation_depth:
         getNumber(row.metadata, "continuation_depth"),
+      priority_score: getNumber(row.metadata, "priority_score"),
+      urgency_score: getNumber(row.metadata, "urgency_score"),
+      business_impact_score: getNumber(
+        row.metadata,
+        "business_impact_score"
+      ),
+      risk_score: getNumber(row.metadata, "risk_score"),
+      scheduling_bucket:
+        getReviewString(row.metadata, "scheduling_bucket"),
+      recommended_execution_order: getNumber(
+        row.metadata,
+        "recommended_execution_order"
+      ),
+      priority_rationale:
+        getReviewString(row.metadata, "priority_rationale"),
+      priority_signals: getArray(row.metadata, "priority_signals"),
       updated_at: row.updated_at,
       started_at: row.started_at,
       completed_at: row.completed_at,

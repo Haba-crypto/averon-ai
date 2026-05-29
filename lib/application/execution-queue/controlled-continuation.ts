@@ -17,6 +17,11 @@ import {
   ExecutionQueueEmptyError,
   processNextExecutionQueueItem,
 } from "@/lib/application/execution-queue/process-next-execution-queue-item";
+import {
+  compareQueueItemsByPriority,
+  evaluateAndPersistWorkPriority,
+  isBlockedPriority,
+} from "@/lib/application/execution-queue/priority-scheduling";
 
 type ProcessControlledContinuationInput = {
   supabase: SupabaseClient;
@@ -156,7 +161,6 @@ async function findEligibleQueueItem({
   }
 
   const { data, error } = await query
-    .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
     .limit(queueItemId ? 1 : 25);
 
@@ -164,10 +168,27 @@ async function findEligibleQueueItem({
     throw error;
   }
 
+  const candidates = (data ?? []) as unknown as ExecutionQueueItem[];
+  const prioritizedCandidates = await Promise.all(
+    candidates.map(async (candidate) => {
+      const priorityResult = await evaluateAndPersistWorkPriority({
+        supabase,
+        organizationId,
+        queueItem: candidate,
+      });
+
+      return priorityResult.queue_item;
+    })
+  );
+
   return (
-    ((data ?? []) as unknown as ExecutionQueueItem[]).find(
-      isEligibleForContinuation
-    ) ?? null
+    prioritizedCandidates
+      .filter(
+        (candidate) =>
+          !isBlockedPriority(candidate) &&
+          isEligibleForContinuation(candidate)
+      )
+      .sort(compareQueueItemsByPriority)[0] ?? null
   );
 }
 

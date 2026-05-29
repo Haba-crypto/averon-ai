@@ -28,6 +28,11 @@ import {
   type WorkGenerationResult,
 } from "@/lib/application/agents/work-generation";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
+import {
+  compareQueueItemsByPriority,
+  evaluateAndPersistWorkPriority,
+  isBlockedPriority,
+} from "@/lib/application/execution-queue/priority-scheduling";
 
 type ProcessNextExecutionQueueItemInput = {
   supabase: SupabaseClient;
@@ -432,16 +437,31 @@ async function findReadyQueueItem({
   }
 
   const { data, error } = await query
-    .order("priority", { ascending: false })
     .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle<ProcessedQueueItem>();
+    .limit(queueItemId ? 1 : 25);
 
   if (error) {
     throw error;
   }
 
-  return data;
+  const candidates = (data ?? []) as unknown as ProcessedQueueItem[];
+  const prioritizedCandidates = await Promise.all(
+    candidates.map(async (candidate) => {
+      const priorityResult = await evaluateAndPersistWorkPriority({
+        supabase,
+        organizationId,
+        queueItem: candidate,
+      });
+
+      return priorityResult.queue_item as ProcessedQueueItem;
+    })
+  );
+
+  const sortedCandidates = prioritizedCandidates
+    .filter((candidate) => !isBlockedPriority(candidate))
+    .sort(compareQueueItemsByPriority);
+
+  return sortedCandidates[0] ?? null;
 }
 
 async function loadWorkItem({

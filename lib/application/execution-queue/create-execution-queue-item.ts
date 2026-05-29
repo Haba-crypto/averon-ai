@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { evaluateAndPersistWorkPriority } from "@/lib/application/execution-queue/priority-scheduling";
+
 export type ExecutionQueueStatus =
   | "pending"
   | "ready"
@@ -94,7 +96,13 @@ export async function createExecutionQueueItem({
   });
 
   if (existing) {
-    return existing;
+    const priorityResult = await evaluateAndPersistWorkPriority({
+      supabase,
+      organizationId,
+      queueItem: existing,
+    });
+
+    return priorityResult.queue_item;
   }
 
   const now = new Date().toISOString();
@@ -122,7 +130,13 @@ export async function createExecutionQueueItem({
     throw error;
   }
 
-  return data;
+  const priorityResult = await evaluateAndPersistWorkPriority({
+    supabase,
+    organizationId,
+    queueItem: data,
+  });
+
+  return priorityResult.queue_item;
 }
 
 async function findOpenExecutionQueueItem({
