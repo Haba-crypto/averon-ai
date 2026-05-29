@@ -25,6 +25,7 @@ export type ExecutionQueueItem = {
   status: ExecutionQueueStatus;
   priority: ExecutionQueuePriority;
   queue_reason: string | null;
+  failure_reason: string | null;
   next_action: string | null;
   created_at: string;
   updated_at: string;
@@ -62,6 +63,7 @@ const EXECUTION_QUEUE_SELECT_COLUMNS = [
   "status",
   "priority",
   "queue_reason",
+  "failure_reason",
   "next_action",
   "created_at",
   "updated_at",

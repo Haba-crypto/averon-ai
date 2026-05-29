@@ -565,6 +565,10 @@ function normalizeAgentDecision(
     return normalizeExecutionResumeReadyDecision(row);
   }
 
+  if (row.decision_type === "queue_execution_processed") {
+    return normalizeQueueExecutionProcessedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -633,6 +637,49 @@ function normalizeExecutionResumeReadyDecision(
       recommended_next_action:
         getReviewString(row.metadata, "recommended_next_action") ??
         getReviewString(outcome, "recommended_next_action"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeQueueExecutionProcessedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const assignedAgentName =
+    getReviewString(row.metadata, "assigned_agent_name") ??
+    getReviewString(outcome, "assigned_agent_name") ??
+    "Operations Agent";
+  const nextAction =
+    getReviewString(row.metadata, "next_action") ??
+    getReviewString(outcome, "next_action");
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Queue Item Processed",
+    message: `${assignedAgentName} processed the resumed execution queue item.`,
+    status: "processed",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      assigned_agent_name: assignedAgentName,
+      next_action: nextAction,
+      result:
+        getReviewString(row.metadata, "result") ??
+        getReviewString(outcome, "result"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
