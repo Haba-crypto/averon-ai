@@ -492,7 +492,7 @@ const result = await processNextExecutionQueueItem({
 const agentExecution = environment.state.agentExecutions[0];
 const processedDecision = environment.state.decisions.find(
   (decision) =>
-    decision.decision_type === "queue_execution_processed"
+    decision.decision_type === "capability_executed"
 );
 
 assert(result.openai_called === false, "processing should not call OpenAI");
@@ -518,7 +518,7 @@ assert(
 assert(
   processedDecision?.decision?.outcome?.runtime_context_summary
     ?.memory_count >= 1,
-  "queue_execution_processed decision should contain runtime_context_summary"
+  "capability_executed decision should contain runtime_context_summary"
 );
 assert(
   processedDecision?.metadata?.runtime_context_summary?.timeline_count >=

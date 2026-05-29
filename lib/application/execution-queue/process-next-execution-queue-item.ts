@@ -6,6 +6,11 @@ import {
   summarizeAgentRuntimeContext,
   type AgentRuntimeContext,
 } from "@/lib/application/agents/build-agent-runtime-context";
+import {
+  executeAgentCapability,
+  selectAgentCapability,
+  type AgentCapabilityExecutionResult,
+} from "@/lib/application/agents/agent-capabilities";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 
 type ProcessNextExecutionQueueItemInput = {
@@ -137,14 +142,22 @@ export async function processNextExecutionQueueItem({
     });
     agentExecutionId = agentExecution.id;
 
-    const agentDecision = await createProcessedDecision({
+    const selectedCapability = selectAgentCapability(runtimeContext);
+    const capabilityExecution = executeAgentCapability({
+      organizationId,
+      agentExecutionId,
+      runtimeContext,
+      capability: selectedCapability,
+    });
+
+    const agentDecision = await createCapabilityDecision({
       supabase,
       organizationId,
       queueItem: claimedQueueItem,
       assignedAgent,
       agentExecutionId,
       agentName,
-      nextAction,
+      capabilityExecution,
       runtimeContextSummary,
       processedAt,
     });
@@ -156,7 +169,7 @@ export async function processNextExecutionQueueItem({
       queueItem: claimedQueueItem,
       decisionId: agentDecision.id,
       agentName,
-      nextAction,
+      capabilityExecution,
       processedAt,
     });
 
@@ -184,7 +197,11 @@ export async function processNextExecutionQueueItem({
       agent_execution_id: agentExecutionId,
       agent_decision_id: agentDecision.id,
       work_item: updatedWorkItem,
-      next_action: nextAction,
+      capability: {
+        capability_id: capabilityExecution.capability_id,
+        capability_name: capabilityExecution.capability_name,
+      },
+      next_action: capabilityExecution.recommended_next_action,
       openai_called: false,
       processed_count: 1,
     };
@@ -424,7 +441,7 @@ async function createAgentExecution({
       },
       metadata: {
         source: "queue_orchestrator",
-        phase: 20,
+        phase: 21,
         queue_item_id: queueItem.id,
         work_item_id: queueItem.work_item_id,
         assigned_agent_name: agentName,
@@ -448,14 +465,14 @@ async function createAgentExecution({
   return data;
 }
 
-async function createProcessedDecision({
+async function createCapabilityDecision({
   supabase,
   organizationId,
   queueItem,
   assignedAgent,
   agentExecutionId,
   agentName,
-  nextAction,
+  capabilityExecution,
   runtimeContextSummary,
   processedAt,
 }: {
@@ -465,7 +482,7 @@ async function createProcessedDecision({
   assignedAgent: AgentRow | null;
   agentExecutionId: string;
   agentName: string;
-  nextAction: string;
+  capabilityExecution: AgentCapabilityExecutionResult;
   runtimeContextSummary: ReturnType<typeof summarizeAgentRuntimeContext>;
   processedAt: string;
 }) {
@@ -473,9 +490,14 @@ async function createProcessedDecision({
     queue_item_id: queueItem.id,
     work_item_id: queueItem.work_item_id,
     assigned_agent_name: agentName,
-    next_action: nextAction,
+    capability_id: capabilityExecution.capability_id,
+    capability_name: capabilityExecution.capability_name,
+    result: capabilityExecution.result,
+    recommended_next_action:
+      capabilityExecution.recommended_next_action,
+    created_tasks: capabilityExecution.created_tasks ?? [],
+    created_decisions: capabilityExecution.created_decisions ?? [],
     runtime_context_summary: runtimeContextSummary,
-    result: "processed",
     processed_at: processedAt,
   };
 
@@ -486,15 +508,15 @@ async function createProcessedDecision({
       agent_execution_id: agentExecutionId,
       agent_id: assignedAgent?.id ?? queueItem.assigned_agent_id,
       work_item_id: queueItem.work_item_id,
-      decision_type: "queue_execution_processed",
+      decision_type: "capability_executed",
       decision: {
         outcome: decision,
       },
-      rationale: `${agentName} processed the resumed execution queue item.`,
+      rationale: `${agentName} executed ${capabilityExecution.capability_id}.`,
       confidence: 1,
       metadata: {
         source: "queue_orchestrator",
-        phase: 20,
+        phase: 21,
         ...decision,
         agent_identity: buildAgentIdentityMetadata(assignedAgent, agentName),
         runtime_context_version: AGENT_RUNTIME_CONTEXT_VERSION,
@@ -519,7 +541,7 @@ async function completeAgentExecution({
   queueItem,
   decisionId,
   agentName,
-  nextAction,
+  capabilityExecution,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -528,7 +550,7 @@ async function completeAgentExecution({
   queueItem: ProcessedQueueItem;
   decisionId: string;
   agentName: string;
-  nextAction: string;
+  capabilityExecution: AgentCapabilityExecutionResult;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -536,12 +558,18 @@ async function completeAgentExecution({
     .update({
       status: "succeeded",
       output: {
-        result: "processed",
+        result: "capability_executed",
         queue_item_id: queueItem.id,
         work_item_id: queueItem.work_item_id,
         agent_decision_id: decisionId,
         assigned_agent_name: agentName,
-        next_action: nextAction,
+        capability_id: capabilityExecution.capability_id,
+        capability_name: capabilityExecution.capability_name,
+        capability_result: capabilityExecution.result,
+        recommended_next_action:
+          capabilityExecution.recommended_next_action,
+        created_tasks: capabilityExecution.created_tasks ?? [],
+        created_decisions: capabilityExecution.created_decisions ?? [],
       },
       completed_at: processedAt,
       updated_at: processedAt,

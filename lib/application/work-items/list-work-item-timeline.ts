@@ -569,6 +569,10 @@ function normalizeAgentDecision(
     return normalizeQueueExecutionProcessedDecision(row);
   }
 
+  if (row.decision_type === "capability_executed") {
+    return normalizeCapabilityExecutedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -683,6 +687,61 @@ function normalizeQueueExecutionProcessedDecision(
       result:
         getReviewString(row.metadata, "result") ??
         getReviewString(outcome, "result"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeCapabilityExecutedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const assignedAgentName =
+    getReviewString(row.metadata, "assigned_agent_name") ??
+    getReviewString(outcome, "assigned_agent_name") ??
+    "Agent";
+  const capabilityId =
+    getReviewString(row.metadata, "capability_id") ??
+    getReviewString(outcome, "capability_id") ??
+    "unknown_capability";
+  const capabilityName =
+    getReviewString(row.metadata, "capability_name") ??
+    getReviewString(outcome, "capability_name") ??
+    capabilityId;
+  const recommendedNextAction =
+    getReviewString(row.metadata, "recommended_next_action") ??
+    getReviewString(outcome, "recommended_next_action");
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Capability Executed",
+    message: `${assignedAgentName} executed ${capabilityId}.`,
+    status: "capability_executed",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      assigned_agent_name: assignedAgentName,
+      capability_id: capabilityId,
+      capability_name: capabilityName,
+      result:
+        getRecord(row.metadata, "result") ?? getRecord(outcome, "result"),
+      recommended_next_action: recommendedNextAction,
+      runtime_context_summary:
+        getRecord(row.metadata, "runtime_context_summary") ??
+        getRecord(outcome, "runtime_context_summary"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
