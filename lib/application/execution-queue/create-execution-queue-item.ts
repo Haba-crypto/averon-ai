@@ -27,6 +27,7 @@ export type ExecutionQueueItem = {
   queue_reason: string | null;
   failure_reason: string | null;
   next_action: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
   started_at: string | null;
@@ -44,6 +45,7 @@ export type CreateExecutionQueueItemInput = {
   priority?: ExecutionQueuePriority;
   queueReason?: string | null;
   nextAction?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 const OPEN_QUEUE_STATUSES: ExecutionQueueStatus[] = [
@@ -65,6 +67,7 @@ const EXECUTION_QUEUE_SELECT_COLUMNS = [
   "queue_reason",
   "failure_reason",
   "next_action",
+  "metadata",
   "created_at",
   "updated_at",
   "started_at",
@@ -82,6 +85,7 @@ export async function createExecutionQueueItem({
   priority = "normal",
   queueReason = null,
   nextAction = null,
+  metadata = null,
 }: CreateExecutionQueueItemInput) {
   const existing = await findOpenExecutionQueueItem({
     supabase,
@@ -107,6 +111,7 @@ export async function createExecutionQueueItem({
       priority,
       queue_reason: queueReason,
       next_action: nextAction,
+      metadata,
       created_at: now,
       updated_at: now,
     })

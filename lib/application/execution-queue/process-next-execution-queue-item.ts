@@ -73,6 +73,7 @@ const EXECUTION_QUEUE_SELECT_COLUMNS = [
   "queue_reason",
   "failure_reason",
   "next_action",
+  "metadata",
   "created_at",
   "updated_at",
   "started_at",

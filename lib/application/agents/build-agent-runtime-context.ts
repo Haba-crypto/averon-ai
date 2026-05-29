@@ -43,6 +43,7 @@ type QueueItemContext = {
   next_action: string | null;
   review_id: string | null;
   source_decision_id: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 type LeadContext = {
@@ -189,6 +190,7 @@ export async function buildAgentRuntimeContext({
       next_action: queueItem.next_action,
       review_id: queueItem.review_id,
       source_decision_id: queueItem.source_decision_id,
+      metadata: queueItem.metadata ?? null,
     },
     work_item: {
       id: workItem.id,
@@ -301,6 +303,7 @@ async function loadQueueItem({
         "next_action",
         "review_id",
         "source_decision_id",
+        "metadata",
       ].join(", ")
     )
     .eq("id", queueItemId)

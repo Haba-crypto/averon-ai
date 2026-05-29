@@ -240,6 +240,7 @@ type ExecutionQueueRow = {
   priority: string | null;
   queue_reason: string | null;
   next_action: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
   started_at: string | null;
@@ -423,6 +424,7 @@ async function listExecutionQueueRows(options: TimelineQueryOptions) {
         "priority",
         "queue_reason",
         "next_action",
+        "metadata",
         "created_at",
         "updated_at",
         "started_at",
@@ -579,6 +581,10 @@ function normalizeAgentDecision(
 
   if (row.decision_type === "follow_up_work_generated") {
     return normalizeFollowUpWorkGeneratedDecision(row);
+  }
+
+  if (row.decision_type === "continuation_policy_evaluated") {
+    return normalizeContinuationPolicyEvaluatedDecision(row);
   }
 
   return {
@@ -882,6 +888,66 @@ function normalizeFollowUpWorkGeneratedDecision(
   };
 }
 
+function normalizeContinuationPolicyEvaluatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const mode =
+    getReviewString(row.metadata, "mode") ??
+    getReviewString(outcome, "mode") ??
+    "manual";
+  const riskLevel =
+    getReviewString(row.metadata, "risk_level") ??
+    getReviewString(outcome, "risk_level") ??
+    "low";
+  const allowed =
+    getBoolean(row.metadata, "allowed") ??
+    getBoolean(outcome, "allowed") ??
+    false;
+  const reason =
+    getReviewString(row.metadata, "reason") ??
+    getReviewString(outcome, "reason") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Continuation Policy Evaluated",
+    message: `Continuation is ${
+      allowed ? "allowed" : "blocked"
+    } in ${mode} mode with ${riskLevel} risk.`,
+    status: mode,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      allowed,
+      mode,
+      reason,
+      risk_level: riskLevel,
+      requires_human_review:
+        getBoolean(row.metadata, "requires_human_review") ??
+        getBoolean(outcome, "requires_human_review"),
+      max_steps_allowed:
+        getNumber(row.metadata, "max_steps_allowed") ??
+        getNumber(outcome, "max_steps_allowed"),
+      policy_checks:
+        getArray(row.metadata, "policy_checks") ??
+        getArray(outcome, "policy_checks") ??
+        [],
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
 function normalizeHandoffDecision(
   row: AgentDecisionRow
 ): WorkItemTimelineItem {
@@ -1154,6 +1220,14 @@ function normalizeExecutionQueue(
       priority: row.priority,
       queue_reason: row.queue_reason,
       next_action: row.next_action,
+      continuation_mode:
+        getReviewString(row.metadata, "continuation_mode"),
+      continuation_allowed:
+        getBoolean(row.metadata, "continuation_allowed"),
+      continuation_reason:
+        getReviewString(row.metadata, "continuation_reason"),
+      continuation_depth:
+        getNumber(row.metadata, "continuation_depth"),
       updated_at: row.updated_at,
       started_at: row.started_at,
       completed_at: row.completed_at,
@@ -1534,6 +1608,14 @@ function getBoolean(value: Record<string, unknown> | null, key: string) {
   const rawValue = value?.[key];
 
   return typeof rawValue === "boolean" ? rawValue : null;
+}
+
+function getNumber(value: Record<string, unknown> | null, key: string) {
+  const rawValue = value?.[key];
+
+  return typeof rawValue === "number" && Number.isFinite(rawValue)
+    ? rawValue
+    : null;
 }
 
 function getDecisionOutcome(

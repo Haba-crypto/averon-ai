@@ -3,7 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentRuntimeContext } from "@/lib/application/agents/build-agent-runtime-context";
 import type { AgentCapabilityExecutionResult } from "@/lib/application/agents/agent-capabilities";
 import {
+  evaluateContinuationPolicy,
+  type ContinuationPolicyDecision,
+} from "@/lib/application/agents/continuation-policy";
+import {
   createExecutionQueueItem,
+  type ExecutionQueueItem,
 } from "@/lib/application/execution-queue/create-execution-queue-item";
 
 const FOLLOW_UP_WORK_AGENT_NAME = "Operations Agent";
@@ -19,6 +24,7 @@ export type WorkGenerationResult = {
     id: string;
     reason: string;
   }>;
+  continuation_policy: ContinuationPolicyDecision | null;
 };
 
 type GenerateFollowUpWorkInput = {
@@ -34,6 +40,7 @@ type GenerateFollowUpWorkInput = {
 
 type WorkItemRow = {
   id: string;
+  priority?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -61,6 +68,7 @@ export async function generateFollowUpWork({
     created_work_items: [],
     created_queue_items: [],
     skipped_duplicates: [],
+    continuation_policy: null,
   };
 
   if (!canGenerateFollowUpWork({ capabilityId, runtimeContext })) {
@@ -120,10 +128,19 @@ export async function generateFollowUpWork({
     workItemId,
     sourceDecisionId: decision.id,
     assignedAgentId: agent?.id ?? null,
-    assignedAgentName: FOLLOW_UP_WORK_AGENT_NAME,
+    assignedAgentName: agent?.name ?? null,
     priority: "high",
     queueReason: FOLLOW_UP_WORK_REASON,
     nextAction: capabilityResult.recommended_next_action,
+    metadata: {
+      source: "capability_work_generation",
+      phase: 24,
+      continuation_depth: resolveNextContinuationDepth(runtimeContext),
+      continuation_allowed: false,
+      continuation_mode: "manual",
+      continuation_reason: "Continuation policy pending.",
+      openai_called: false,
+    },
   });
 
   if (result.created_work_items.includes(workItemId)) {
@@ -142,6 +159,24 @@ export async function generateFollowUpWork({
     decisionId: decision.id,
     parentWorkItemId,
     capabilityResult,
+    result,
+    processedAt,
+  });
+
+  result.continuation_policy = await evaluateAndPersistContinuationPolicy({
+    supabase,
+    organizationId,
+    parentWorkItemId,
+    agentExecutionId,
+    agent,
+    queueItem,
+    workItem: await loadGeneratedWorkItem({
+      supabase,
+      organizationId,
+      workItemId,
+    }),
+    capabilityResult,
+    runtimeContext,
     result,
     processedAt,
   });
@@ -175,7 +210,7 @@ async function findExistingFollowUpWorkItem({
 }) {
   const { data, error } = await supabase
     .from("work_items")
-    .select("id, metadata")
+    .select("id, priority, metadata")
     .eq("organization_id", organizationId)
     .eq("type", "follow_up")
     .eq("source_type", "capability");
@@ -385,6 +420,167 @@ async function updateFollowUpWorkDecisionCreatedIds({
   }
 }
 
+async function loadGeneratedWorkItem({
+  supabase,
+  organizationId,
+  workItemId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  workItemId: string;
+}) {
+  const { data, error } = await supabase
+    .from("work_items")
+    .select("id, priority, metadata")
+    .eq("id", workItemId)
+    .eq("organization_id", organizationId)
+    .maybeSingle<WorkItemRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function evaluateAndPersistContinuationPolicy({
+  supabase,
+  organizationId,
+  parentWorkItemId,
+  agentExecutionId,
+  agent,
+  queueItem,
+  workItem,
+  capabilityResult,
+  runtimeContext,
+  result,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  parentWorkItemId: string;
+  agentExecutionId: string;
+  agent: AgentRow | null;
+  queueItem: ExecutionQueueItem;
+  workItem: WorkItemRow | null;
+  capabilityResult: AgentCapabilityExecutionResult;
+  runtimeContext: AgentRuntimeContext;
+  result: WorkGenerationResult;
+  processedAt: string;
+}) {
+  const policy = evaluateContinuationPolicy({
+    organizationId,
+    queueItem,
+    workItem,
+    runtimeContext,
+    capabilityResult,
+    generatedWork: result,
+  });
+
+  await createContinuationPolicyDecision({
+    supabase,
+    organizationId,
+    parentWorkItemId,
+    agentExecutionId,
+    agent,
+    queueItem,
+    policy,
+    processedAt,
+  });
+
+  await updateGeneratedQueuePolicyMetadata({
+    supabase,
+    organizationId,
+    queueItem,
+    policy,
+  });
+
+  return policy;
+}
+
+async function createContinuationPolicyDecision({
+  supabase,
+  organizationId,
+  parentWorkItemId,
+  agentExecutionId,
+  agent,
+  queueItem,
+  policy,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  parentWorkItemId: string;
+  agentExecutionId: string;
+  agent: AgentRow | null;
+  queueItem: ExecutionQueueItem;
+  policy: ContinuationPolicyDecision;
+  processedAt: string;
+}) {
+  const { error } = await supabase
+    .from("agent_decisions")
+    .insert({
+      organization_id: organizationId,
+      agent_execution_id: agentExecutionId,
+      agent_id: agent?.id ?? queueItem.assigned_agent_id,
+      work_item_id: parentWorkItemId,
+      decision_type: "continuation_policy_evaluated",
+      decision: {
+        outcome: policy,
+      },
+      rationale: policy.reason,
+      confidence: 1,
+      metadata: {
+        source: "continuation_policy",
+        phase: 24,
+        queue_item_id: queueItem.id,
+        ...policy,
+        openai_called: false,
+      },
+      created_at: processedAt,
+    });
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function updateGeneratedQueuePolicyMetadata({
+  supabase,
+  organizationId,
+  queueItem,
+  policy,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  queueItem: ExecutionQueueItem;
+  policy: ContinuationPolicyDecision;
+}) {
+  const metadata = {
+    ...(queueItem.metadata ?? {}),
+    continuation_mode: policy.mode,
+    continuation_allowed: policy.allowed,
+    continuation_reason: policy.reason,
+    continuation_depth: resolveQueueContinuationDepth(queueItem),
+    continuation_risk_level: policy.risk_level,
+    continuation_requires_human_review: policy.requires_human_review,
+    continuation_policy_checks: policy.policy_checks,
+    openai_called: false,
+  };
+
+  const { error } = await supabase
+    .from("execution_queue")
+    .update({
+      metadata,
+    })
+    .eq("id", queueItem.id)
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw error;
+  }
+}
+
 function buildDecisionOutcome({
   parentWorkItemId,
   capabilityResult,
@@ -413,4 +609,20 @@ function getAgentRole(agent: AgentRow | null) {
   const role = agent?.config?.role;
 
   return typeof role === "string" ? role : null;
+}
+
+function resolveNextContinuationDepth(runtimeContext: AgentRuntimeContext) {
+  const parentDepth = runtimeContext.queue_item.metadata?.continuation_depth;
+
+  return typeof parentDepth === "number" && Number.isFinite(parentDepth)
+    ? parentDepth + 1
+    : 1;
+}
+
+function resolveQueueContinuationDepth(queueItem: ExecutionQueueItem) {
+  const depth = queueItem.metadata?.continuation_depth;
+
+  return typeof depth === "number" && Number.isFinite(depth)
+    ? depth
+    : 1;
 }
