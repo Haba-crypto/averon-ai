@@ -52,6 +52,11 @@ import {
   persistReasoningEvaluationDecision,
   type ReasoningProposalQualityEvaluation,
 } from "@/lib/application/agents/reasoning-evaluation";
+import {
+  deriveReasoningLearningSignal,
+  persistReasoningLearningSignal,
+  type ReasoningLearningSignal,
+} from "@/lib/application/agents/reasoning-learning";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
@@ -195,6 +200,8 @@ type ReasoningStageOutput = {
   reasoningProposalDecision: AgentDecisionRow;
   reasoningEvaluation: ReasoningProposalQualityEvaluation;
   reasoningEvaluationDecision: AgentDecisionRow;
+  reasoningLearningSignal: ReasoningLearningSignal;
+  reasoningLearningFeedback: unknown;
 };
 
 const EXECUTION_QUEUE_SELECT_COLUMNS = [
@@ -488,6 +495,7 @@ export async function processNextExecutionQueueItem({
       reasoningEvaluation: reasoning.output.reasoningEvaluation,
       reasoningEvaluationDecisionId:
         reasoning.output.reasoningEvaluationDecision.id,
+      reasoningLearningSignal: reasoning.output.reasoningLearningSignal,
       idempotencyKeys: collectIdempotencyKeys([
         claim,
         context,
@@ -546,6 +554,7 @@ export async function processNextExecutionQueueItem({
       reasoning_evaluation: reasoning.output.reasoningEvaluation,
       reasoning_evaluation_decision_id:
         reasoning.output.reasoningEvaluationDecision.id,
+      reasoning_learning_signal: reasoning.output.reasoningLearningSignal,
       outcome_feedback: outcome.output.outcomeFeedback,
       idempotency_keys: collectIdempotencyKeys([
         claim,
@@ -1147,6 +1156,23 @@ export async function generateReasoningProposalStage({
         evaluation: reasoningEvaluation,
         processedAt: context.processedAt,
       });
+    const reasoningLearningSignal = deriveReasoningLearningSignal({
+      reasoningProposal: reasoningResult.proposal,
+      reasoningEvaluation,
+      outcomeEvaluation: outcome.outcomeEvaluation,
+      humanReviewContext: context.runtimeContext.human_review_context,
+      executionPlan: planning.executionPlan,
+      runtimeContext: context.runtimeContext,
+    });
+    const reasoningLearningFeedback = await persistReasoningLearningSignal({
+      supabase,
+      organizationId,
+      agentExecutionId: context.agentExecution.id,
+      agentId: context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
+      workItemId: context.queueItem.work_item_id,
+      learningSignal: reasoningLearningSignal,
+      processedAt: context.processedAt,
+    });
 
     return stageOk(stage, idempotencyKey, {
       reasoningProposal: reasoningResult.proposal,
@@ -1156,6 +1182,8 @@ export async function generateReasoningProposalStage({
       reasoningProposalDecision,
       reasoningEvaluation,
       reasoningEvaluationDecision,
+      reasoningLearningSignal,
+      reasoningLearningFeedback,
     });
   } catch (error: unknown) {
     return stageFailed(stage, idempotencyKey, error, {
@@ -1839,6 +1867,7 @@ async function completeAgentExecution({
   reasoningProposalDecisionId,
   reasoningEvaluation,
   reasoningEvaluationDecisionId,
+  reasoningLearningSignal,
   idempotencyKeys,
   processedAt,
 }: {
@@ -1865,6 +1894,7 @@ async function completeAgentExecution({
   reasoningProposalDecisionId: string;
   reasoningEvaluation: ReasoningProposalQualityEvaluation;
   reasoningEvaluationDecisionId: string;
+  reasoningLearningSignal: ReasoningLearningSignal;
   idempotencyKeys: Record<string, string>;
   processedAt: string;
 }) {
@@ -1901,6 +1931,7 @@ async function completeAgentExecution({
         reasoning_proposal_decision_id: reasoningProposalDecisionId,
         reasoning_evaluation: reasoningEvaluation,
         reasoning_evaluation_decision_id: reasoningEvaluationDecisionId,
+        reasoning_learning_signal: reasoningLearningSignal,
         idempotency_keys: idempotencyKeys,
       },
       completed_at: processedAt,

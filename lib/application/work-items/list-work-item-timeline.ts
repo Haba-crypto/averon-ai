@@ -619,6 +619,10 @@ function normalizeAgentDecision(
     return normalizeReasoningEvaluatedDecision(row);
   }
 
+  if (row.decision_type === "reasoning_learning_signal_created") {
+    return normalizeReasoningLearningSignalCreatedDecision(row);
+  }
+
   if (row.decision_type === "outcome_evaluated") {
     return normalizeOutcomeEvaluatedDecision(row);
   }
@@ -824,6 +828,77 @@ function normalizeReasoningEvaluatedDecision(
         getArray(row.metadata, "evaluation_signals") ??
         getArray(outcome, "evaluation_signals"),
       reasoning_evaluation: getRecord(row.metadata, "reasoning_evaluation"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeReasoningLearningSignalCreatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const signalType =
+    getReviewString(row.metadata, "signal_type") ??
+    getReviewString(outcome, "signal_type") ??
+    "needs_more_data";
+  const usefulnessScore =
+    getNumber(row.metadata, "usefulness_score") ??
+    getNumber(outcome, "usefulness_score") ??
+    0;
+  const strategyEffectivenessScore =
+    getNumber(row.metadata, "strategy_effectiveness_score") ??
+    getNumber(outcome, "strategy_effectiveness_score") ??
+    0;
+  const summary =
+    getReviewString(row.metadata, "summary") ??
+    getReviewString(outcome, "summary") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Reasoning Learning Signal Created",
+    message:
+      signalType === "negative"
+        ? "Reasoning learning signal: negative, adjustment recommended."
+        : `Reasoning learning signal: ${signalType}, usefulness score ${usefulnessScore}.`,
+    status: signalType,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      learning_signal_id:
+        getReviewString(row.metadata, "learning_signal_id") ??
+        getReviewString(outcome, "learning_signal_id"),
+      proposal_id:
+        getReviewString(row.metadata, "proposal_id") ??
+        getReviewString(outcome, "proposal_id"),
+      signal_type: signalType,
+      usefulness_score: usefulnessScore,
+      safety_score:
+        getNumber(row.metadata, "safety_score") ??
+        getNumber(outcome, "safety_score"),
+      outcome_alignment_score:
+        getNumber(row.metadata, "outcome_alignment_score") ??
+        getNumber(outcome, "outcome_alignment_score"),
+      human_alignment_score:
+        getNumber(row.metadata, "human_alignment_score") ??
+        getNumber(outcome, "human_alignment_score"),
+      strategy_effectiveness_score: strategyEffectivenessScore,
+      summary,
+      lessons:
+        getStringArray(row.metadata, "lessons") ??
+        getStringArray(outcome, "lessons") ??
+        [],
+      recommended_adjustments:
+        getStringArray(row.metadata, "recommended_adjustments") ??
+        getStringArray(outcome, "recommended_adjustments") ??
+        [],
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
