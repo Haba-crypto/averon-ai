@@ -703,12 +703,12 @@ function normalizeReasoningProposalCreatedDecision(
     getNumber(outcome, "confidence_score") ??
     (row.confidence === null ? 0 : Math.round(Number(row.confidence) * 100));
   const acceptedActions =
-    getStringArray(row.metadata, "accepted_actions") ??
-    getStringArray(outcome, "accepted_actions") ??
+    getActionTitles(row.metadata, "accepted_actions") ??
+    getActionTitles(outcome, "accepted_actions") ??
     [];
   const rejectedActions =
-    getStringArray(row.metadata, "rejected_actions") ??
-    getStringArray(outcome, "rejected_actions") ??
+    getActionTitles(row.metadata, "rejected_actions") ??
+    getActionTitles(outcome, "rejected_actions") ??
     [];
   const strategy =
     getReviewString(row.metadata, "strategy") ??
@@ -2097,6 +2097,35 @@ function getStringArray(
   return rawValue?.every((item) => typeof item === "string")
     ? (rawValue as string[])
     : null;
+}
+
+function getActionTitles(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const rawValue = getArray(value, key);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const titles = rawValue
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+
+      if (item && typeof item === "object" && "title" in item) {
+        const title = (item as { title?: unknown }).title;
+
+        return typeof title === "string" ? title : null;
+      }
+
+      return null;
+    })
+    .filter((item): item is string => typeof item === "string");
+
+  return titles.length === rawValue.length ? titles : null;
 }
 
 function getBoolean(value: Record<string, unknown> | null, key: string) {

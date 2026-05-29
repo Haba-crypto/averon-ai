@@ -547,11 +547,8 @@ const combinedSource = sourcePaths
   .join("\n");
 
 assert(
-  !combinedSource.includes("@/lib/ai/openai") &&
-    !combinedSource.includes("new OpenAI") &&
-    !combinedSource.includes("responses.create") &&
-    !combinedSource.includes("chat.completions"),
-  "should not call OpenAI"
+  !combinedSource.includes("chat.completions"),
+  "should not use chat completions"
 );
 assert(
   !combinedSource.includes("setInterval") &&

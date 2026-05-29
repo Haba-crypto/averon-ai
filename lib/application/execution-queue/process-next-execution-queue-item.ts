@@ -38,10 +38,13 @@ import {
 } from "@/lib/application/agents/policy-governance";
 import {
   evaluateReasoningProposal,
-  generateReasoningProposal,
+  generateReasoningProposalWithMetadata,
+  buildPersistedReasoningProposal,
   persistReasoningProposalDecision,
   type ReasoningProposal,
+  type ReasoningProposalGenerationResult,
   type ReasoningProposalGovernanceResult,
+  type PersistedReasoningProposal,
 } from "@/lib/application/agents/reasoning-proposal";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
@@ -180,6 +183,8 @@ type OutcomeStageOutput = {
 
 type ReasoningStageOutput = {
   reasoningProposal: ReasoningProposal;
+  reasoningResult: ReasoningProposalGenerationResult;
+  persistedReasoningProposal: PersistedReasoningProposal;
   reasoningProposalGovernance: ReasoningProposalGovernanceResult;
   reasoningProposalDecision: AgentDecisionRow;
 };
@@ -467,7 +472,7 @@ export async function processNextExecutionQueueItem({
       policyGovernanceDecisionId:
         governance.output.policyGovernanceDecision.id,
       outcomeEvaluation: outcome.output.outcomeEvaluation,
-      reasoningProposal: reasoning.output.reasoningProposal,
+      persistedReasoningProposal: reasoning.output.persistedReasoningProposal,
       reasoningProposalGovernance:
         reasoning.output.reasoningProposalGovernance,
       reasoningProposalDecisionId:
@@ -522,7 +527,7 @@ export async function processNextExecutionQueueItem({
       policy_governance_decision_id:
         governance.output.policyGovernanceDecision.id,
       outcome_evaluation: outcome.output.outcomeEvaluation,
-      reasoning_proposal: reasoning.output.reasoningProposal,
+      reasoning_proposal: reasoning.output.persistedReasoningProposal,
       reasoning_proposal_governance:
         reasoning.output.reasoningProposalGovernance,
       reasoning_proposal_decision_id:
@@ -1077,7 +1082,7 @@ export async function generateReasoningProposalStage({
 
   try {
     const priorityResult = extractPriorityDecision(completedQueueItem);
-    const reasoningProposal = await generateReasoningProposal({
+    const reasoningResult = await generateReasoningProposalWithMetadata({
       runtimeContext: context.runtimeContext,
       governanceResult: governance.policyGovernance,
       priorityResult,
@@ -1085,8 +1090,12 @@ export async function generateReasoningProposalStage({
       executionPlan: planning.executionPlan,
     });
     const reasoningProposalGovernance = evaluateReasoningProposal({
-      proposal: reasoningProposal,
+      proposal: reasoningResult.proposal,
       governanceResult: governance.policyGovernance,
+    });
+    const persistedReasoningProposal = buildPersistedReasoningProposal({
+      reasoningResult,
+      proposalGovernance: reasoningProposalGovernance,
     });
     const reasoningProposalDecision = await persistReasoningProposalDecision({
       supabase,
@@ -1094,13 +1103,15 @@ export async function generateReasoningProposalStage({
       agentExecutionId: context.agentExecution.id,
       agentId: context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
       workItemId: context.queueItem.work_item_id,
-      reasoningProposal,
+      reasoningResult,
       proposalGovernance: reasoningProposalGovernance,
       processedAt: context.processedAt,
     });
 
     return stageOk(stage, idempotencyKey, {
-      reasoningProposal,
+      reasoningProposal: reasoningResult.proposal,
+      reasoningResult,
+      persistedReasoningProposal,
       reasoningProposalGovernance,
       reasoningProposalDecision,
     });
@@ -1781,7 +1792,7 @@ async function completeAgentExecution({
   policyGovernance,
   policyGovernanceDecisionId,
   outcomeEvaluation,
-  reasoningProposal,
+  persistedReasoningProposal,
   reasoningProposalGovernance,
   reasoningProposalDecisionId,
   idempotencyKeys,
@@ -1805,7 +1816,7 @@ async function completeAgentExecution({
   policyGovernance: PolicyGovernanceDecision;
   policyGovernanceDecisionId: string;
   outcomeEvaluation: ExecutionOutcomeEvaluation;
-  reasoningProposal: ReasoningProposal;
+  persistedReasoningProposal: PersistedReasoningProposal;
   reasoningProposalGovernance: ReasoningProposalGovernanceResult;
   reasoningProposalDecisionId: string;
   idempotencyKeys: Record<string, string>;
@@ -1839,7 +1850,7 @@ async function completeAgentExecution({
         policy_governance: policyGovernance,
         policy_governance_decision_id: policyGovernanceDecisionId,
         outcome_evaluation: outcomeEvaluation,
-        reasoning_proposal: reasoningProposal,
+        reasoning_proposal: persistedReasoningProposal,
         reasoning_proposal_governance: reasoningProposalGovernance,
         reasoning_proposal_decision_id: reasoningProposalDecisionId,
         idempotency_keys: idempotencyKeys,

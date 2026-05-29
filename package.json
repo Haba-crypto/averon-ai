@@ -25,6 +25,7 @@
     "verify:outcome-evaluation": "node scripts/verify-outcome-evaluation.mjs",
     "verify:policy-governance": "node scripts/verify-policy-governance.mjs",
     "verify:reasoning-proposal": "node scripts/verify-reasoning-proposal.mjs",
+    "verify:reasoning-provider": "node scripts/verify-reasoning-provider.mjs",
     "verify:runtime-hardening": "node scripts/verify-runtime-hardening.mjs",
     "verify:queue-orchestrator": "node scripts/verify-queue-orchestrator.mjs",
     "verify:queue-orchestrator:live": "node scripts/verify-queue-orchestrator-live.mjs",
