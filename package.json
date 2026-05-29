@@ -11,6 +11,8 @@
     "verify:human-review": "node scripts/verify-human-review-queue.mjs",
     "verify:review-intelligence": "node scripts/verify-review-intelligence.mjs",
     "verify:human-feedback": "node scripts/verify-human-decision-feedback.mjs",
+    "verify:execution-resume": "node scripts/verify-execution-resume.mjs",
+    "verify:execution-queue": "node scripts/verify-execution-queue.mjs",
     "start": "next start",
     "lint": "eslint"
   },

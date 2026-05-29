@@ -1,0 +1,143 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+export type ExecutionQueueStatus =
+  | "pending"
+  | "ready"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ExecutionQueuePriority =
+  | "low"
+  | "normal"
+  | "high"
+  | "urgent";
+
+export type ExecutionQueueItem = {
+  id: string;
+  organization_id: string;
+  work_item_id: string;
+  review_id: string | null;
+  source_decision_id: string | null;
+  assigned_agent_id: string | null;
+  assigned_agent_name: string | null;
+  status: ExecutionQueueStatus;
+  priority: ExecutionQueuePriority;
+  queue_reason: string | null;
+  next_action: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+};
+
+export type CreateExecutionQueueItemInput = {
+  supabase: SupabaseClient;
+  organizationId: string;
+  workItemId: string;
+  reviewId?: string | null;
+  sourceDecisionId?: string | null;
+  assignedAgentId?: string | null;
+  assignedAgentName?: string | null;
+  priority?: ExecutionQueuePriority;
+  queueReason?: string | null;
+  nextAction?: string | null;
+};
+
+const OPEN_QUEUE_STATUSES: ExecutionQueueStatus[] = [
+  "pending",
+  "ready",
+  "in_progress",
+];
+
+const EXECUTION_QUEUE_SELECT_COLUMNS = [
+  "id",
+  "organization_id",
+  "work_item_id",
+  "review_id",
+  "source_decision_id",
+  "assigned_agent_id",
+  "assigned_agent_name",
+  "status",
+  "priority",
+  "queue_reason",
+  "next_action",
+  "created_at",
+  "updated_at",
+  "started_at",
+  "completed_at",
+];
+
+export async function createExecutionQueueItem({
+  supabase,
+  organizationId,
+  workItemId,
+  reviewId = null,
+  sourceDecisionId = null,
+  assignedAgentId = null,
+  assignedAgentName = null,
+  priority = "normal",
+  queueReason = null,
+  nextAction = null,
+}: CreateExecutionQueueItemInput) {
+  const existing = await findOpenExecutionQueueItem({
+    supabase,
+    organizationId,
+    workItemId,
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("execution_queue")
+    .insert({
+      organization_id: organizationId,
+      work_item_id: workItemId,
+      review_id: reviewId,
+      source_decision_id: sourceDecisionId,
+      assigned_agent_id: assignedAgentId,
+      assigned_agent_name: assignedAgentName,
+      status: "ready",
+      priority,
+      queue_reason: queueReason,
+      next_action: nextAction,
+      created_at: now,
+      updated_at: now,
+    })
+    .select(EXECUTION_QUEUE_SELECT_COLUMNS.join(", "))
+    .single<ExecutionQueueItem>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function findOpenExecutionQueueItem({
+  supabase,
+  organizationId,
+  workItemId,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  workItemId: string;
+}) {
+  const { data, error } = await supabase
+    .from("execution_queue")
+    .select(EXECUTION_QUEUE_SELECT_COLUMNS.join(", "))
+    .eq("organization_id", organizationId)
+    .eq("work_item_id", workItemId)
+    .in("status", OPEN_QUEUE_STATUSES)
+    .maybeSingle<ExecutionQueueItem>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}

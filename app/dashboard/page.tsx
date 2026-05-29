@@ -22,6 +22,7 @@ type DashboardSummary = {
   leadsCount?: number;
   tasksCount?: number;
   conversationsCount?: number;
+  executionQueueReadyCount?: number;
 };
 
 type Lead = {

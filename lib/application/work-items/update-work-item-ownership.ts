@@ -11,6 +11,7 @@ export type WorkItemOwnershipStatus =
   | "assigned"
   | "transferred"
   | "human_review"
+  | "ready_to_resume"
   | "blocked"
   | "completed";
 

@@ -9,12 +9,14 @@ export type WorkItemTimelineItem = {
     | "ai_event"
     | "agent_execution"
     | "agent_decision"
+    | "execution_queue"
     | "human_review"
     | "memory_entry";
   source:
     | "ai_events"
     | "agent_executions"
     | "agent_decisions"
+    | "execution_queue"
     | "human_reviews"
     | "memory_entries";
   title: string;
@@ -81,6 +83,7 @@ export async function listWorkItemTimeline({
     aiEventsResult,
     agentExecutionsResult,
     agentDecisionsResult,
+    executionQueueResult,
     humanReviewsResult,
     memoryEntriesResult,
   ] = await Promise.all([
@@ -99,6 +102,13 @@ export async function listWorkItemTimeline({
       cursor,
     }),
     listAgentDecisionRows({
+      supabase,
+      workItemId,
+      organizationId,
+      limit: queryLimit,
+      cursor,
+    }),
+    listExecutionQueueRows({
       supabase,
       workItemId,
       organizationId,
@@ -125,6 +135,7 @@ export async function listWorkItemTimeline({
     ...aiEventsResult.map(normalizeAiEvent),
     ...agentExecutionsResult.map(normalizeAgentExecution),
     ...agentDecisionsResult.map(normalizeAgentDecision),
+    ...executionQueueResult.map(normalizeExecutionQueue),
     ...humanReviewsResult.map(normalizeHumanReview),
     ...memoryEntriesResult.map(normalizeMemoryEntry),
   ].sort(compareTimelineItems);
@@ -217,6 +228,22 @@ type HumanReviewRow = {
   review_notes: string | null;
   created_at: string;
   updated_at: string | null;
+};
+
+type ExecutionQueueRow = {
+  id: string;
+  review_id: string | null;
+  source_decision_id: string | null;
+  assigned_agent_id: string | null;
+  assigned_agent_name: string | null;
+  status: string | null;
+  priority: string | null;
+  queue_reason: string | null;
+  next_action: string | null;
+  created_at: string;
+  updated_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
 type MemoryEntryRow = {
@@ -382,6 +409,46 @@ async function listHumanReviewRows(options: TimelineQueryOptions) {
   return (data ?? []) as unknown as HumanReviewRow[];
 }
 
+async function listExecutionQueueRows(options: TimelineQueryOptions) {
+  let query = options.supabase
+    .from("execution_queue")
+    .select(
+      [
+        "id",
+        "review_id",
+        "source_decision_id",
+        "assigned_agent_id",
+        "assigned_agent_name",
+        "status",
+        "priority",
+        "queue_reason",
+        "next_action",
+        "created_at",
+        "updated_at",
+        "started_at",
+        "completed_at",
+      ].join(", ")
+    )
+    .eq("work_item_id", options.workItemId)
+    .eq("organization_id", options.organizationId)
+    .order("created_at", {
+      ascending: false,
+    })
+    .limit(options.limit);
+
+  if (options.cursor) {
+    query = query.lt("created_at", options.cursor);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as unknown as ExecutionQueueRow[];
+}
+
 async function listMemoryEntryRows(options: TimelineQueryOptions) {
   let query = options.supabase
     .from("memory_entries")
@@ -494,6 +561,10 @@ function normalizeAgentDecision(
     return normalizeHumanReviewDecision(row);
   }
 
+  if (row.decision_type === "execution_resume_ready") {
+    return normalizeExecutionResumeReadyDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -509,6 +580,59 @@ function normalizeAgentDecision(
       record_id: row.id,
       agent_execution_id: row.agent_execution_id,
       decision_type: row.decision_type,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeExecutionResumeReadyDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const resumeAgentName =
+    getReviewString(row.metadata, "resume_agent_name") ??
+    getReviewString(outcome, "resume_agent_name") ??
+    "Operations Agent";
+  const resumeReason =
+    getReviewString(row.metadata, "resume_reason") ??
+    getReviewString(outcome, "resume_reason") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Execution Resume Ready",
+    message: `${resumeAgentName} can continue after human approval.`,
+    status: "ready_to_resume",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      review_id:
+        getReviewString(row.metadata, "review_id") ??
+        getReviewString(outcome, "review_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      source_review_status:
+        getReviewString(row.metadata, "source_review_status") ??
+        getReviewString(outcome, "source_review_status"),
+      approved_by:
+        getReviewString(row.metadata, "approved_by") ??
+        getReviewString(outcome, "approved_by"),
+      resume_agent_id:
+        getReviewString(row.metadata, "resume_agent_id") ??
+        getReviewString(outcome, "resume_agent_id"),
+      resume_agent_name: resumeAgentName,
+      resume_reason: resumeReason,
+      recommended_next_action:
+        getReviewString(row.metadata, "recommended_next_action") ??
+        getReviewString(outcome, "recommended_next_action"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
@@ -762,6 +886,37 @@ export function normalizeHumanReviewForVerification(
   return normalizeHumanReview(row);
 }
 
+function normalizeExecutionQueue(
+  row: ExecutionQueueRow
+): WorkItemTimelineItem {
+  const agentName = row.assigned_agent_name ?? "Operations Agent";
+
+  return {
+    id: `execution_queue:${row.id}`,
+    type: "execution_queue",
+    source: "execution_queue",
+    title: "Execution Queued",
+    message: `${agentName} is ready to continue work.`,
+    status: row.status,
+    agent_id: row.assigned_agent_id,
+    confidence: null,
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      review_id: row.review_id,
+      source_decision_id: row.source_decision_id,
+      assigned_agent_id: row.assigned_agent_id,
+      assigned_agent_name: row.assigned_agent_name,
+      priority: row.priority,
+      queue_reason: row.queue_reason,
+      next_action: row.next_action,
+      updated_at: row.updated_at,
+      started_at: row.started_at,
+      completed_at: row.completed_at,
+    },
+  };
+}
+
 function buildHumanReviewTitle(status: string | null) {
   if (status === "approved") {
     return "Human Review Approved";
@@ -923,6 +1078,10 @@ function buildOwnershipChangeTitle({
 
   if (ownershipStatus === "completed") {
     return "Human review completed";
+  }
+
+  if (ownershipStatus === "ready_to_resume" && newOwnerName) {
+    return `Work ready to resume with ${newOwnerName}`;
   }
 
   if (newOwnerType === "human" || newOwnerType === "shared") {

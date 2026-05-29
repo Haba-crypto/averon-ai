@@ -96,6 +96,7 @@ function createFakeSupabase(label) {
       },
     ],
     decisions: [],
+    executionQueue: [],
   };
 
   function tableRows(table) {
@@ -111,24 +112,36 @@ function createFakeSupabase(label) {
       return state.decisions;
     }
 
+    if (table === "execution_queue") {
+      return state.executionQueue;
+    }
+
     return [];
   }
 
-  function matches(row, filters) {
-    return Object.entries(filters).every(
-      ([key, value]) => row[key] === value
+  function matches(row, filters, inFilters = {}) {
+    return (
+      Object.entries(filters).every(
+        ([key, value]) => row[key] === value
+      ) &&
+      Object.entries(inFilters).every(([key, values]) =>
+        values.includes(row[key])
+      )
     );
   }
 
   function createBuilder(table) {
     const builder = {
       filters: {},
+      inFilters: {},
       patch: null,
       insertRow: null,
       select() {
         if (this.patch) {
           tableRows(table)
-            .filter((row) => matches(row, this.filters))
+            .filter((row) =>
+              matches(row, this.filters, this.inFilters)
+            )
             .forEach((row) => Object.assign(row, this.patch));
         }
 
@@ -136,6 +149,10 @@ function createFakeSupabase(label) {
       },
       eq(key, value) {
         this.filters[key] = value;
+        return this;
+      },
+      in(key, values) {
+        this.inFilters[key] = values;
         return this;
       },
       update(patch) {
@@ -159,7 +176,7 @@ function createFakeSupabase(label) {
         }
 
         const row = tableRows(table).find((candidate) =>
-          matches(candidate, this.filters)
+          matches(candidate, this.filters, this.inFilters)
         );
 
         return row
@@ -168,7 +185,7 @@ function createFakeSupabase(label) {
       },
       async maybeSingle() {
         const row = tableRows(table).find((candidate) =>
-          matches(candidate, this.filters)
+          matches(candidate, this.filters, this.inFilters)
         );
 
         return { data: row ? { ...row } : null, error: null };
@@ -296,10 +313,10 @@ const results = [
     expected: {
       owner_type: "ai",
       owner_agent_name: "Operations Agent",
-      ownership_status: "transferred",
+      ownership_status: "ready_to_resume",
       feedback_title: "Work returned to Operations Agent",
       ownership_title:
-        "Work ownership transferred from Human Review to Operations Agent",
+        "Work ready to resume with Operations Agent",
     },
   }),
   await runCase({

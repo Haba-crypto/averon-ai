@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { createExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import type { HumanReviewStatus } from "@/lib/application/human-reviews/create-human-review";
 import {
   updateWorkItemOwnership,
@@ -33,6 +34,7 @@ type UpdatedHumanReviewRecord = {
   reviewed_by: string | null;
   review_outcome: string | null;
   review_notes: string | null;
+  recommended_action: string | null;
 };
 
 const UPDATED_REVIEW_SELECT_COLUMNS = [
@@ -51,6 +53,7 @@ const UPDATED_REVIEW_SELECT_COLUMNS = [
   "reviewed_by",
   "review_outcome",
   "review_notes",
+  "recommended_action",
 ];
 
 export async function updateHumanReviewStatus({
@@ -174,6 +177,114 @@ async function createHumanDecisionFeedback({
     throw error;
   }
 
+  if (review.status === "approved") {
+    try {
+      await createExecutionResumeReadyDecision({
+        supabase,
+        organizationId,
+        review,
+        decidedBy,
+        resumeAgent: feedback.recommended_next_agent,
+      });
+    } catch (resumeError) {
+      console.error("EXECUTION RESUME READY DECISION FAILED", {
+        organizationId,
+        reviewId: review.id,
+        workItemId: review.work_item_id,
+        error: resumeError,
+      });
+    }
+  }
+
+  return data;
+}
+
+async function createExecutionResumeReadyDecision({
+  supabase,
+  organizationId,
+  review,
+  decidedBy,
+  resumeAgent,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  review: UpdatedHumanReviewRecord;
+  decidedBy: string | null;
+  resumeAgent: WorkItemOwnershipAgent | null;
+}) {
+  if (!review.work_item_id) {
+    return null;
+  }
+
+  const createdAt = new Date().toISOString();
+  const resumeAgentName = resumeAgent?.name ?? "Operations Agent";
+  const resumeReason =
+    review.review_notes ??
+    review.review_outcome ??
+    "Human review approved; execution may resume.";
+  const recommendedNextAction =
+    review.recommended_action ??
+    `Resume work after approved human review.`;
+  const resumeReady = {
+    review_id: review.id,
+    work_item_id: review.work_item_id,
+    source_review_status: review.status,
+    approved_by: decidedBy,
+    resume_agent_id: resumeAgent?.id ?? null,
+    resume_agent_name: resumeAgentName,
+    resume_reason: resumeReason,
+    recommended_next_action: recommendedNextAction,
+    created_at: createdAt,
+  };
+
+  const { data, error } = await supabase
+    .from("agent_decisions")
+    .insert({
+      organization_id: organizationId,
+      agent_execution_id: review.agent_execution_id,
+      agent_id: resumeAgent?.id ?? null,
+      work_item_id: review.work_item_id,
+      decision_type: "execution_resume_ready",
+      decision: {
+        outcome: resumeReady,
+      },
+      rationale: `${resumeAgentName} can continue after human approval.`,
+      confidence: 1,
+      metadata: {
+        source: "execution_resume_layer",
+        ...resumeReady,
+      },
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (error) {
+    throw error;
+  }
+
+  try {
+    await createExecutionQueueItem({
+      supabase,
+      organizationId,
+      workItemId: review.work_item_id,
+      reviewId: review.id,
+      sourceDecisionId: data.id,
+      assignedAgentId: resumeAgent?.id ?? null,
+      assignedAgentName: resumeAgentName,
+      priority: normalizeExecutionQueuePriority(review.priority),
+      queueReason: resumeReason,
+      nextAction: recommendedNextAction,
+    });
+  } catch (queueError) {
+    console.error("EXECUTION QUEUE CREATION FAILED", {
+      organizationId,
+      reviewId: review.id,
+      workItemId: review.work_item_id,
+      sourceDecisionId: data.id,
+      error: queueError,
+    });
+  }
+
   return data;
 }
 
@@ -201,7 +312,8 @@ async function applyHumanDecisionOwnership({
       ownerAgentId: nextAgent.id,
       ownerAgentName: nextAgent.name,
       ownerAgentRole: nextAgent.role,
-      reason: "approved by human review",
+      ownershipStatus: "ready_to_resume",
+      reason: "approved human review; ready to resume",
       sourceAgent: "Human Review",
       targetAgent: nextAgent,
     });
@@ -335,4 +447,17 @@ function mapReviewDecision(status: HumanReviewStatus) {
   }
 
   return null;
+}
+
+function normalizeExecutionQueuePriority(priority: string) {
+  if (
+    priority === "low" ||
+    priority === "normal" ||
+    priority === "high" ||
+    priority === "urgent"
+  ) {
+    return priority;
+  }
+
+  return "normal";
 }
