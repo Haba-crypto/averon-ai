@@ -587,6 +587,14 @@ function normalizeAgentDecision(
     return normalizeContinuationPolicyEvaluatedDecision(row);
   }
 
+  if (row.decision_type === "controlled_continuation_processed") {
+    return normalizeControlledContinuationProcessedDecision(row);
+  }
+
+  if (row.decision_type === "continuation_blocked") {
+    return normalizeContinuationBlockedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -943,6 +951,90 @@ function normalizeContinuationPolicyEvaluatedDecision(
         getArray(row.metadata, "policy_checks") ??
         getArray(outcome, "policy_checks") ??
         [],
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeControlledContinuationProcessedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const continuationDepth =
+    getNumber(row.metadata, "continuation_depth") ??
+    getNumber(outcome, "continuation_depth");
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Controlled Continuation Processed",
+    message:
+      row.rationale ??
+      "Operations Agent continued one approved follow-up step.",
+    status: "processed",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      continuation_depth: continuationDepth,
+      policy_snapshot:
+        getRecord(row.metadata, "policy_snapshot") ??
+        getRecord(outcome, "policy_snapshot"),
+      process_result:
+        getRecord(row.metadata, "process_result") ??
+        getRecord(outcome, "process_result"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeContinuationBlockedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const reason =
+    getReviewString(row.metadata, "reason") ??
+    getReviewString(outcome, "reason") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Continuation Blocked",
+    message:
+      reason ??
+      "Continuation blocked because policy rejected the queue item.",
+    status: "blocked",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      reason,
+      policy_snapshot:
+        getRecord(row.metadata, "policy_snapshot") ??
+        getRecord(outcome, "policy_snapshot"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };

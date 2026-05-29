@@ -44,7 +44,7 @@ type EvaluateContinuationPolicyInput = {
   } | null;
 };
 
-const MAX_CONTINUATION_STEPS = 3;
+export const MAX_CONTINUATION_STEPS = 3;
 
 export function evaluateContinuationPolicy({
   organizationId,
