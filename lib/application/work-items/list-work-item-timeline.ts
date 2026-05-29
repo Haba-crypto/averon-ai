@@ -575,6 +575,10 @@ function normalizeAgentDecision(
     return normalizeCapabilityExecutedDecision(row);
   }
 
+  if (row.decision_type === "agent_execution_plan_created") {
+    return normalizeAgentExecutionPlanCreatedDecision(row);
+  }
+
   if (row.decision_type === "capability_side_effects_applied") {
     return normalizeCapabilitySideEffectsAppliedDecision(row);
   }
@@ -835,6 +839,69 @@ function normalizeCapabilitySideEffectsAppliedDecision(
         getBoolean(row.metadata, "updated_work_item") ??
         getBoolean(outcome, "updated_work_item"),
       skipped_duplicates: skippedDuplicates,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeAgentExecutionPlanCreatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const agentName =
+    getReviewString(row.metadata, "agent_name") ??
+    getReviewString(outcome, "agent_name") ??
+    "Agent";
+  const stepCount =
+    getNumber(row.metadata, "step_count") ??
+    getNumber(outcome, "step_count") ??
+    0;
+  const riskLevel =
+    getReviewString(row.metadata, "risk_level") ??
+    getReviewString(outcome, "risk_level") ??
+    "low";
+  const requiresHumanReview =
+    getBoolean(row.metadata, "requires_human_review") ??
+    getBoolean(outcome, "requires_human_review") ??
+    false;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Agent Execution Plan Created",
+    message: `${agentName} created a ${stepCount}-step execution plan.`,
+    status: "agent_execution_plan_created",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      plan_id:
+        getReviewString(row.metadata, "plan_id") ??
+        getReviewString(outcome, "plan_id"),
+      agent_name: agentName,
+      capability_id:
+        getReviewString(row.metadata, "capability_id") ??
+        getReviewString(outcome, "capability_id"),
+      step_count: stepCount,
+      risk_level: riskLevel,
+      requires_human_review: requiresHumanReview,
+      recommended_next_step:
+        getReviewString(row.metadata, "recommended_next_step") ??
+        getReviewString(outcome, "recommended_next_step"),
+      execution_plan:
+        getRecord(row.metadata, "execution_plan") ??
+        getRecord(outcome, "execution_plan"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };

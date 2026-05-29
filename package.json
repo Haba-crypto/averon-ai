@@ -19,6 +19,7 @@
     "verify:work-generation": "node scripts/verify-work-generation.mjs",
     "verify:continuation-guardrails": "node scripts/verify-continuation-guardrails.mjs",
     "verify:controlled-continuation": "node scripts/verify-controlled-continuation.mjs",
+    "verify:agent-planning": "node scripts/verify-agent-planning.mjs",
     "verify:queue-orchestrator": "node scripts/verify-queue-orchestrator.mjs",
     "verify:queue-orchestrator:live": "node scripts/verify-queue-orchestrator-live.mjs",
     "start": "next start",

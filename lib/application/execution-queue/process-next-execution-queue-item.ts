@@ -12,6 +12,10 @@ import {
   type AgentCapabilityExecutionResult,
 } from "@/lib/application/agents/agent-capabilities";
 import {
+  buildAgentExecutionPlan,
+  type AgentExecutionPlan,
+} from "@/lib/application/agents/agent-planning";
+import {
   applyCapabilitySideEffects,
   type CapabilitySideEffectsResult,
 } from "@/lib/application/agents/capability-side-effects";
@@ -208,6 +212,22 @@ export async function processNextExecutionQueueItem({
       });
     }
 
+    const executionPlan = buildAgentExecutionPlan({
+      runtimeContext,
+      selectedCapability,
+      capabilityResult: capabilityExecution,
+      continuationPolicy: workGenerationResult?.continuation_policy ?? null,
+    });
+    const planDecision = await createAgentExecutionPlanDecision({
+      supabase,
+      organizationId,
+      queueItem: claimedQueueItem,
+      assignedAgent,
+      agentExecutionId,
+      executionPlan,
+      processedAt,
+    });
+
     const agentDecision = await createCapabilityDecision({
       supabase,
       organizationId,
@@ -236,6 +256,8 @@ export async function processNextExecutionQueueItem({
       sideEffectsError,
       workGenerationResult,
       workGenerationError,
+      executionPlan,
+      planDecisionId: planDecision.id,
       processedAt,
     });
 
@@ -272,6 +294,7 @@ export async function processNextExecutionQueueItem({
       side_effects_error: sideEffectsError,
       work_generation: workGenerationResult,
       work_generation_error: workGenerationError,
+      execution_plan: executionPlan,
       openai_called: false,
       processed_count: 1,
     };
@@ -616,6 +639,71 @@ async function createCapabilityDecision({
   return data;
 }
 
+async function createAgentExecutionPlanDecision({
+  supabase,
+  organizationId,
+  queueItem,
+  assignedAgent,
+  agentExecutionId,
+  executionPlan,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  queueItem: ProcessedQueueItem;
+  assignedAgent: AgentRow | null;
+  agentExecutionId: string;
+  executionPlan: AgentExecutionPlan;
+  processedAt: string;
+}) {
+  const outcome = {
+    plan_id: executionPlan.plan_id,
+    agent_name: executionPlan.agent_name,
+    capability_id: executionPlan.capability_id,
+    step_count: executionPlan.steps.length,
+    risk_level: executionPlan.risk_level,
+    requires_human_review: executionPlan.requires_human_review,
+    recommended_next_step: executionPlan.recommended_next_step,
+  };
+
+  const { data, error } = await supabase
+    .from("agent_decisions")
+    .insert({
+      organization_id: organizationId,
+      agent_execution_id: agentExecutionId,
+      agent_id: assignedAgent?.id ?? queueItem.assigned_agent_id,
+      work_item_id: queueItem.work_item_id,
+      decision_type: "agent_execution_plan_created",
+      decision: {
+        outcome,
+      },
+      rationale: `${executionPlan.agent_name} created a ${executionPlan.steps.length}-step execution plan.`,
+      confidence: 1,
+      metadata: {
+        source: "agent_planning",
+        phase: 26,
+        queue_item_id: queueItem.id,
+        work_item_id: queueItem.work_item_id,
+        ...outcome,
+        execution_plan: executionPlan,
+        agent_identity: buildAgentIdentityMetadata(
+          assignedAgent,
+          executionPlan.agent_name
+        ),
+        openai_called: false,
+      },
+      created_at: processedAt,
+    })
+    .select("id")
+    .single<AgentDecisionRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 async function completeAgentExecution({
   supabase,
   organizationId,
@@ -628,6 +716,8 @@ async function completeAgentExecution({
   sideEffectsError,
   workGenerationResult,
   workGenerationError,
+  executionPlan,
+  planDecisionId,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -641,6 +731,8 @@ async function completeAgentExecution({
   sideEffectsError: string | null;
   workGenerationResult: WorkGenerationResult | null;
   workGenerationError: string | null;
+  executionPlan: AgentExecutionPlan;
+  planDecisionId: string;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -652,6 +744,7 @@ async function completeAgentExecution({
         queue_item_id: queueItem.id,
         work_item_id: queueItem.work_item_id,
         agent_decision_id: decisionId,
+        agent_execution_plan_decision_id: planDecisionId,
         assigned_agent_name: agentName,
         capability_id: capabilityExecution.capability_id,
         capability_name: capabilityExecution.capability_name,
@@ -664,6 +757,7 @@ async function completeAgentExecution({
         side_effects_error: sideEffectsError,
         work_generation_result: workGenerationResult,
         work_generation_error: workGenerationError,
+        execution_plan: executionPlan,
       },
       completed_at: processedAt,
       updated_at: processedAt,
