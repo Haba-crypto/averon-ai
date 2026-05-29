@@ -23,6 +23,7 @@
     "verify:plan-translation": "node scripts/verify-plan-translation.mjs",
     "verify:priority-scheduling": "node scripts/verify-priority-scheduling.mjs",
     "verify:outcome-evaluation": "node scripts/verify-outcome-evaluation.mjs",
+    "verify:policy-governance": "node scripts/verify-policy-governance.mjs",
     "verify:queue-orchestrator": "node scripts/verify-queue-orchestrator.mjs",
     "verify:queue-orchestrator:live": "node scripts/verify-queue-orchestrator-live.mjs",
     "start": "next start",

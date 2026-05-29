@@ -32,6 +32,10 @@ import {
   persistExecutionOutcomeFeedback,
   type ExecutionOutcomeEvaluation,
 } from "@/lib/application/agents/outcome-evaluation";
+import {
+  evaluatePolicyGovernance,
+  type PolicyGovernanceDecision,
+} from "@/lib/application/agents/policy-governance";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
@@ -170,6 +174,59 @@ export async function processNextExecutionQueueItem({
     agentExecutionId = agentExecution.id;
 
     const selectedCapability = selectAgentCapability(runtimeContext);
+    const policyGovernance = evaluatePolicyGovernance({
+      organizationId,
+      runtimeContext,
+      selectedCapability,
+    });
+    const policyGovernanceDecision =
+      await createPolicyGovernanceDecision({
+        supabase,
+        organizationId,
+        queueItem: claimedQueueItem,
+        assignedAgent,
+        agentExecutionId,
+        agentName,
+        policyGovernance,
+        processedAt,
+      });
+
+    if (policyGovernance.blocked) {
+      await markQueueItemFailed({
+        supabase,
+        organizationId,
+        queueItemId: claimedQueueItem.id,
+        failureReason: policyGovernance.policy_reason,
+      });
+      await completeBlockedAgentExecution({
+        supabase,
+        organizationId,
+        agentExecutionId,
+        queueItem: claimedQueueItem,
+        agentName,
+        policyGovernance,
+        policyGovernanceDecisionId: policyGovernanceDecision.id,
+        processedAt,
+      });
+
+      return {
+        success: false,
+        result: "policy_blocked" as const,
+        queue_item: {
+          ...claimedQueueItem,
+          status: "failed",
+          failure_reason: policyGovernance.policy_reason,
+          completed_at: processedAt,
+          updated_at: processedAt,
+        },
+        agent_execution_id: agentExecutionId,
+        agent_decision_id: policyGovernanceDecision.id,
+        policy_governance: policyGovernance,
+        openai_called: false,
+        processed_count: 1,
+      };
+    }
+
     const capabilityExecution = executeAgentCapability({
       organizationId,
       agentExecutionId,
@@ -334,6 +391,8 @@ export async function processNextExecutionQueueItem({
       planTranslationError,
       executionPlan,
       planDecisionId: planDecision.id,
+      policyGovernance,
+      policyGovernanceDecisionId: policyGovernanceDecision.id,
       outcomeEvaluation,
       processedAt,
     });
@@ -377,6 +436,8 @@ export async function processNextExecutionQueueItem({
       plan_translation: planTranslationResult,
       plan_translation_error: planTranslationError,
       execution_plan: executionPlan,
+      policy_governance: policyGovernance,
+      policy_governance_decision_id: policyGovernanceDecision.id,
       outcome_evaluation: outcomeEvaluation,
       outcome_feedback: outcomeFeedback,
       openai_called: false,
@@ -738,6 +799,72 @@ async function createCapabilityDecision({
   return data;
 }
 
+async function createPolicyGovernanceDecision({
+  supabase,
+  organizationId,
+  queueItem,
+  assignedAgent,
+  agentExecutionId,
+  agentName,
+  policyGovernance,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  queueItem: ProcessedQueueItem;
+  assignedAgent: AgentRow | null;
+  agentExecutionId: string;
+  agentName: string;
+  policyGovernance: PolicyGovernanceDecision;
+  processedAt: string;
+}) {
+  const outcome = {
+    queue_item_id: queueItem.id,
+    work_item_id: queueItem.work_item_id,
+    assigned_agent_name: agentName,
+    allowed: policyGovernance.allowed,
+    blocked: policyGovernance.blocked,
+    human_review_required: policyGovernance.human_review_required,
+    escalation_required: policyGovernance.escalation_required,
+    autonomy_level: policyGovernance.autonomy_level,
+    risk_level: policyGovernance.risk_level,
+    policy_reason: policyGovernance.policy_reason,
+    policy_checks: policyGovernance.policy_checks,
+    processed_at: processedAt,
+  };
+
+  const { data, error } = await supabase
+    .from("agent_decisions")
+    .insert({
+      organization_id: organizationId,
+      agent_execution_id: agentExecutionId,
+      agent_id: assignedAgent?.id ?? queueItem.assigned_agent_id,
+      work_item_id: queueItem.work_item_id,
+      decision_type: "policy_governance_evaluated",
+      decision: {
+        outcome,
+      },
+      rationale: policyGovernance.policy_reason,
+      confidence: 1,
+      metadata: {
+        source: "policy_governance",
+        phase: 30,
+        ...outcome,
+        agent_identity: buildAgentIdentityMetadata(assignedAgent, agentName),
+        openai_called: false,
+      },
+      created_at: processedAt,
+    })
+    .select("id")
+    .single<AgentDecisionRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 async function createAgentExecutionPlanDecision({
   supabase,
   organizationId,
@@ -888,6 +1015,8 @@ async function completeAgentExecution({
   planTranslationError,
   executionPlan,
   planDecisionId,
+  policyGovernance,
+  policyGovernanceDecisionId,
   outcomeEvaluation,
   processedAt,
 }: {
@@ -906,6 +1035,8 @@ async function completeAgentExecution({
   planTranslationError: string | null;
   executionPlan: AgentExecutionPlan;
   planDecisionId: string;
+  policyGovernance: PolicyGovernanceDecision;
+  policyGovernanceDecisionId: string;
   outcomeEvaluation: ExecutionOutcomeEvaluation;
   processedAt: string;
 }) {
@@ -934,7 +1065,55 @@ async function completeAgentExecution({
         plan_translation_result: planTranslationResult,
         plan_translation_error: planTranslationError,
         execution_plan: executionPlan,
+        policy_governance: policyGovernance,
+        policy_governance_decision_id: policyGovernanceDecisionId,
         outcome_evaluation: outcomeEvaluation,
+      },
+      completed_at: processedAt,
+      updated_at: processedAt,
+    })
+    .eq("id", agentExecutionId)
+    .eq("organization_id", organizationId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function completeBlockedAgentExecution({
+  supabase,
+  organizationId,
+  agentExecutionId,
+  queueItem,
+  agentName,
+  policyGovernance,
+  policyGovernanceDecisionId,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  agentExecutionId: string;
+  queueItem: ProcessedQueueItem;
+  agentName: string;
+  policyGovernance: PolicyGovernanceDecision;
+  policyGovernanceDecisionId: string;
+  processedAt: string;
+}) {
+  const { error } = await supabase
+    .from("agent_executions")
+    .update({
+      status: "failed",
+      output: {
+        result: "policy_blocked",
+        queue_item_id: queueItem.id,
+        work_item_id: queueItem.work_item_id,
+        assigned_agent_name: agentName,
+        policy_governance: policyGovernance,
+        policy_governance_decision_id: policyGovernanceDecisionId,
+        capability_executed: false,
+      },
+      error: {
+        message: policyGovernance.policy_reason,
       },
       completed_at: processedAt,
       updated_at: processedAt,

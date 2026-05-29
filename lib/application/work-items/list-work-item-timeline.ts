@@ -607,6 +607,10 @@ function normalizeAgentDecision(
     return normalizePriorityEvaluatedDecision(row);
   }
 
+  if (row.decision_type === "policy_governance_evaluated") {
+    return normalizePolicyGovernanceEvaluatedDecision(row);
+  }
+
   if (row.decision_type === "outcome_evaluated") {
     return normalizeOutcomeEvaluatedDecision(row);
   }
@@ -1251,6 +1255,70 @@ function normalizePriorityEvaluatedDecision(
       signals:
         getArray(row.metadata, "signals") ??
         getArray(outcome, "signals"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizePolicyGovernanceEvaluatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const allowed =
+    getBoolean(row.metadata, "allowed") ?? getBoolean(outcome, "allowed") ?? false;
+  const blocked =
+    getBoolean(row.metadata, "blocked") ?? getBoolean(outcome, "blocked") ?? false;
+  const autonomyLevel =
+    getReviewString(row.metadata, "autonomy_level") ??
+    getReviewString(outcome, "autonomy_level") ??
+    "manual";
+  const riskLevel =
+    getReviewString(row.metadata, "risk_level") ??
+    getReviewString(outcome, "risk_level") ??
+    "low";
+  const policyReason =
+    getReviewString(row.metadata, "policy_reason") ??
+    getReviewString(outcome, "policy_reason") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Policy Governance Evaluated",
+    message: blocked
+      ? `Policy Governance Evaluated: blocked due to ${policyReason}`
+      : `Policy Governance Evaluated: allowed in ${autonomyLevel} mode.`,
+    status: allowed ? autonomyLevel : "blocked",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      queue_item_id:
+        getReviewString(row.metadata, "queue_item_id") ??
+        getReviewString(outcome, "queue_item_id"),
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      allowed,
+      blocked,
+      human_review_required:
+        getBoolean(row.metadata, "human_review_required") ??
+        getBoolean(outcome, "human_review_required"),
+      escalation_required:
+        getBoolean(row.metadata, "escalation_required") ??
+        getBoolean(outcome, "escalation_required"),
+      autonomy_level: autonomyLevel,
+      risk_level: riskLevel,
+      policy_reason: policyReason,
+      policy_checks:
+        getArray(row.metadata, "policy_checks") ??
+        getArray(outcome, "policy_checks") ??
+        [],
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };

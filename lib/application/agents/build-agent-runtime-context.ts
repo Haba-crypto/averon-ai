@@ -38,6 +38,7 @@ type WorkItemContext = {
 type QueueItemContext = {
   id: string;
   status: string;
+  assigned_agent_id: string | null;
   assigned_agent_name: string | null;
   queue_reason: string | null;
   next_action: string | null;
@@ -185,6 +186,7 @@ export async function buildAgentRuntimeContext({
     queue_item: {
       id: queueItem.id,
       status: queueItem.status,
+      assigned_agent_id: queueItem.assigned_agent_id,
       assigned_agent_name: queueItem.assigned_agent_name,
       queue_reason: queueItem.queue_reason,
       next_action: queueItem.next_action,
