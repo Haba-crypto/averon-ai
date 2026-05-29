@@ -27,6 +27,11 @@ import {
   generateFollowUpWork,
   type WorkGenerationResult,
 } from "@/lib/application/agents/work-generation";
+import {
+  evaluateExecutionOutcome,
+  persistExecutionOutcomeFeedback,
+  type ExecutionOutcomeEvaluation,
+} from "@/lib/application/agents/outcome-evaluation";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
@@ -287,11 +292,37 @@ export async function processNextExecutionQueueItem({
       processedAt,
     });
 
+    const completedQueueItem = await markQueueItemCompleted({
+      supabase,
+      organizationId,
+      queueItemId: claimedQueueItem.id,
+      completedAt: processedAt,
+    });
+
+    const outcomeEvaluation = evaluateExecutionOutcome({
+      organizationId,
+      agentExecution: {
+        id: agentExecutionId,
+        status: "succeeded",
+      },
+      runtimeContext,
+      capabilityResult: capabilityExecution,
+      sideEffectsResult,
+      sideEffectsError,
+      planTranslationResult,
+      planTranslationError,
+      workGenerationResult,
+      workGenerationError,
+      continuationPolicy: workGenerationResult?.continuation_policy ?? null,
+      queueItem: completedQueueItem,
+      workItem,
+    });
+
     await completeAgentExecution({
       supabase,
       organizationId,
       agentExecutionId,
-      queueItem: claimedQueueItem,
+      queueItem: completedQueueItem,
       decisionId: agentDecision.id,
       agentName,
       capabilityExecution,
@@ -303,14 +334,18 @@ export async function processNextExecutionQueueItem({
       planTranslationError,
       executionPlan,
       planDecisionId: planDecision.id,
+      outcomeEvaluation,
       processedAt,
     });
 
-    const completedQueueItem = await markQueueItemCompleted({
+    const outcomeFeedback = await persistExecutionOutcomeFeedback({
       supabase,
       organizationId,
-      queueItemId: claimedQueueItem.id,
-      completedAt: processedAt,
+      agentExecutionId,
+      agentId: assignedAgent?.id ?? claimedQueueItem.assigned_agent_id,
+      workItemId: claimedQueueItem.work_item_id,
+      outcomeEvaluation,
+      processedAt,
     });
 
     const updatedWorkItem = await updateProcessedWorkItem({
@@ -342,6 +377,8 @@ export async function processNextExecutionQueueItem({
       plan_translation: planTranslationResult,
       plan_translation_error: planTranslationError,
       execution_plan: executionPlan,
+      outcome_evaluation: outcomeEvaluation,
+      outcome_feedback: outcomeFeedback,
       openai_called: false,
       processed_count: 1,
     };
@@ -851,6 +888,7 @@ async function completeAgentExecution({
   planTranslationError,
   executionPlan,
   planDecisionId,
+  outcomeEvaluation,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -868,6 +906,7 @@ async function completeAgentExecution({
   planTranslationError: string | null;
   executionPlan: AgentExecutionPlan;
   planDecisionId: string;
+  outcomeEvaluation: ExecutionOutcomeEvaluation;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -895,6 +934,7 @@ async function completeAgentExecution({
         plan_translation_result: planTranslationResult,
         plan_translation_error: planTranslationError,
         execution_plan: executionPlan,
+        outcome_evaluation: outcomeEvaluation,
       },
       completed_at: processedAt,
       updated_at: processedAt,

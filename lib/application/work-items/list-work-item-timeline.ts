@@ -607,6 +607,10 @@ function normalizeAgentDecision(
     return normalizePriorityEvaluatedDecision(row);
   }
 
+  if (row.decision_type === "outcome_evaluated") {
+    return normalizeOutcomeEvaluatedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -622,6 +626,61 @@ function normalizeAgentDecision(
       record_id: row.id,
       agent_execution_id: row.agent_execution_id,
       decision_type: row.decision_type,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeOutcomeEvaluatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const outcomeStatus =
+    getReviewString(row.metadata, "outcome_status") ??
+    getReviewString(outcome, "outcome_status") ??
+    "unknown";
+  const successScore =
+    getNumber(row.metadata, "success_score") ??
+    getNumber(outcome, "success_score") ??
+    0;
+  const retryRecommended =
+    getBoolean(row.metadata, "retry_recommended") ??
+    getBoolean(outcome, "retry_recommended") ??
+    false;
+  const summary =
+    getReviewString(row.metadata, "feedback_summary") ??
+    getReviewString(outcome, "feedback_summary") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Outcome Evaluated",
+    message: retryRecommended
+      ? `Outcome Evaluated: ${outcomeStatus}, retry recommended.`
+      : `Outcome Evaluated: ${outcomeStatus} with score ${successScore}.`,
+    status: outcomeStatus,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      success_score: successScore,
+      outcome_status: outcomeStatus,
+      failure_category:
+        getReviewString(row.metadata, "failure_category") ??
+        getReviewString(outcome, "failure_category"),
+      retry_recommended: retryRecommended,
+      escalation_recommended:
+        getBoolean(row.metadata, "escalation_recommended") ??
+        getBoolean(outcome, "escalation_recommended"),
+      feedback_summary: summary,
+      signals:
+        getArray(row.metadata, "signals") ?? getArray(outcome, "signals"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
