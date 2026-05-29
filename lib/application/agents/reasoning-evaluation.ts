@@ -7,6 +7,7 @@ import type {
   ReasoningProposal,
   ReasoningProviderName,
 } from "@/lib/application/agents/reasoning-proposal";
+import type { AgentExecutionPlan } from "@/lib/application/agents/agent-planning";
 
 export type ReasoningEvaluationVerdict =
   | "accepted"
@@ -60,10 +61,17 @@ export type PersistReasoningEvaluationInput = {
   agentId?: string | null;
   workItemId?: string | null;
   evaluation: ReasoningProposalQualityEvaluation;
+  runtimeContext?: AgentRuntimeContext | null;
+  reasoningProposal?: ReasoningProposal | null;
+  executionPlan?: AgentExecutionPlan | null;
   processedAt?: string;
 };
 
 type AgentDecisionRow = {
+  id: string;
+};
+
+type MemoryEntryRow = {
   id: string;
 };
 
@@ -221,6 +229,9 @@ export async function persistReasoningEvaluationDecision({
   agentId = null,
   workItemId = null,
   evaluation,
+  runtimeContext = null,
+  reasoningProposal = null,
+  executionPlan = null,
   processedAt = new Date().toISOString(),
 }: PersistReasoningEvaluationInput) {
   const outcome = {
@@ -261,6 +272,101 @@ export async function persistReasoningEvaluationDecision({
     })
     .select("id")
     .single<AgentDecisionRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  await upsertReasoningEvaluationMemoryEntry({
+    supabase,
+    organizationId,
+    agentExecutionId,
+    agentId,
+    workItemId,
+    evaluation,
+    runtimeContext,
+    reasoningProposal,
+    executionPlan,
+    processedAt,
+  });
+
+  return data;
+}
+
+async function upsertReasoningEvaluationMemoryEntry({
+  supabase,
+  organizationId,
+  agentExecutionId,
+  agentId,
+  workItemId,
+  evaluation,
+  runtimeContext,
+  reasoningProposal,
+  executionPlan,
+  processedAt,
+}: Required<PersistReasoningEvaluationInput>) {
+  if (!workItemId) {
+    return null;
+  }
+
+  const key = `reasoning_evaluation:${evaluation.evaluation_id}`;
+  const { data: existing, error: selectError } = await supabase
+    .from("memory_entries")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("scope", "work_item")
+    .eq("key", key)
+    .maybeSingle<MemoryEntryRow>();
+
+  if (selectError) {
+    throw selectError;
+  }
+
+  const memoryPayload = {
+    content: evaluation.rationale,
+    metadata: {
+      source: "reasoning_evaluation",
+      evaluation_id: evaluation.evaluation_id,
+      verdict: evaluation.verdict,
+      quality_score: evaluation.quality_score,
+      safety_score: evaluation.safety_score,
+      usefulness_score: evaluation.usefulness_score,
+      agent_name: runtimeContext?.assigned_agent.name ?? null,
+      capability_id: executionPlan?.capability_id ?? null,
+      work_item_type: runtimeContext?.work_item.type ?? null,
+      proposal_strategy: reasoningProposal?.recommended_strategy ?? null,
+    },
+    updated_at: processedAt,
+  };
+
+  if (existing) {
+    const { error } = await supabase
+      .from("memory_entries")
+      .update(memoryPayload)
+      .eq("id", existing.id)
+      .eq("organization_id", organizationId);
+
+    if (error) {
+      throw error;
+    }
+
+    return existing;
+  }
+
+  const { data, error } = await supabase
+    .from("memory_entries")
+    .insert({
+      organization_id: organizationId,
+      agent_id: agentId,
+      work_item_id: workItemId,
+      source_agent_execution_id: agentExecutionId,
+      scope: "work_item",
+      key,
+      ...memoryPayload,
+      created_at: processedAt,
+    })
+    .select("id")
+    .single<MemoryEntryRow>();
 
   if (error) {
     throw error;

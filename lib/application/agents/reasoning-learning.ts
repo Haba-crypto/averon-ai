@@ -48,6 +48,11 @@ export type PersistReasoningLearningSignalInput = {
   agentId?: string | null;
   workItemId?: string | null;
   learningSignal: ReasoningLearningSignal;
+  runtimeContext?: AgentRuntimeContext | null;
+  reasoningProposal?: ReasoningProposal | null;
+  reasoningEvaluation?: ReasoningProposalQualityEvaluation | null;
+  outcomeEvaluation?: ExecutionOutcomeEvaluation | null;
+  executionPlan?: AgentExecutionPlan | null;
   processedAt?: string;
 };
 
@@ -168,6 +173,11 @@ export async function persistReasoningLearningSignal({
   agentId = null,
   workItemId = null,
   learningSignal,
+  runtimeContext = null,
+  reasoningProposal = null,
+  reasoningEvaluation = null,
+  outcomeEvaluation = null,
+  executionPlan = null,
   processedAt = new Date().toISOString(),
 }: PersistReasoningLearningSignalInput) {
   const decision = await createReasoningLearningDecision({
@@ -177,6 +187,11 @@ export async function persistReasoningLearningSignal({
     agentId,
     workItemId,
     learningSignal,
+    runtimeContext,
+    reasoningProposal,
+    reasoningEvaluation,
+    outcomeEvaluation,
+    executionPlan,
     processedAt,
   });
   const memoryEntry = await upsertReasoningLearningMemoryEntry({
@@ -186,6 +201,11 @@ export async function persistReasoningLearningSignal({
     agentId,
     workItemId,
     learningSignal,
+    runtimeContext,
+    reasoningProposal,
+    reasoningEvaluation,
+    outcomeEvaluation,
+    executionPlan,
     processedAt,
   });
 
@@ -242,6 +262,11 @@ async function upsertReasoningLearningMemoryEntry({
   agentId,
   workItemId,
   learningSignal,
+  runtimeContext,
+  reasoningProposal,
+  reasoningEvaluation,
+  outcomeEvaluation,
+  executionPlan,
   processedAt,
 }: Required<PersistReasoningLearningSignalInput>) {
   if (!workItemId || !learningSignal.proposal_id) {
@@ -263,7 +288,14 @@ async function upsertReasoningLearningMemoryEntry({
 
   const memoryPayload = {
     content: learningSignal.summary,
-    metadata: buildReasoningLearningMemoryMetadata(learningSignal),
+    metadata: buildReasoningLearningMemoryMetadata({
+      learningSignal,
+      runtimeContext,
+      reasoningProposal,
+      reasoningEvaluation,
+      outcomeEvaluation,
+      executionPlan,
+    }),
     updated_at: processedAt,
   };
 
@@ -303,9 +335,21 @@ async function upsertReasoningLearningMemoryEntry({
   return data;
 }
 
-function buildReasoningLearningMemoryMetadata(
-  learningSignal: ReasoningLearningSignal
-) {
+function buildReasoningLearningMemoryMetadata({
+  learningSignal,
+  runtimeContext,
+  reasoningProposal,
+  reasoningEvaluation,
+  outcomeEvaluation,
+  executionPlan,
+}: {
+  learningSignal: ReasoningLearningSignal;
+  runtimeContext: AgentRuntimeContext | null;
+  reasoningProposal: ReasoningProposal | null;
+  reasoningEvaluation: ReasoningProposalQualityEvaluation | null;
+  outcomeEvaluation: ExecutionOutcomeEvaluation | null;
+  executionPlan: AgentExecutionPlan | null;
+}) {
   return {
     source: "reasoning_learning",
     signal_type: learningSignal.signal_type,
@@ -313,6 +357,12 @@ function buildReasoningLearningMemoryMetadata(
     strategy_effectiveness_score:
       learningSignal.strategy_effectiveness_score,
     proposal_id: learningSignal.proposal_id,
+    agent_name: runtimeContext?.assigned_agent.name ?? null,
+    capability_id: executionPlan?.capability_id ?? null,
+    work_item_type: runtimeContext?.work_item.type ?? null,
+    proposal_strategy: reasoningProposal?.recommended_strategy ?? null,
+    outcome_status: outcomeEvaluation?.outcome_status ?? null,
+    verdict: reasoningEvaluation?.verdict ?? null,
   };
 }
 

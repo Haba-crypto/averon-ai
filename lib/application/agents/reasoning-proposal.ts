@@ -4,6 +4,7 @@ import type { AgentExecutionPlan } from "@/lib/application/agents/agent-planning
 import type { AgentRuntimeContext } from "@/lib/application/agents/build-agent-runtime-context";
 import type { ExecutionOutcomeEvaluation } from "@/lib/application/agents/outcome-evaluation";
 import type { PolicyGovernanceDecision } from "@/lib/application/agents/policy-governance";
+import type { ReasoningStrategyContext } from "@/lib/application/agents/reasoning-strategy-memory";
 import type { WorkPriorityDecision } from "@/lib/application/execution-queue/priority-scheduling";
 import { getOpenAIClient } from "@/lib/ai/openai";
 
@@ -39,6 +40,7 @@ export type ReasoningProposalInput = {
   priorityResult?: WorkPriorityDecision | null;
   outcomeEvaluation: ExecutionOutcomeEvaluation;
   executionPlan: AgentExecutionPlan;
+  strategyContext?: ReasoningStrategyContext | null;
 };
 
 export type ReasoningProvider = {
@@ -357,9 +359,18 @@ function buildDeterministicProposal({
   priorityResult,
   outcomeEvaluation,
   executionPlan,
+  strategyContext = null,
 }: ReasoningProposalInput): ReasoningProposal {
   const agentName = runtimeContext.assigned_agent.name;
   const rule = resolveAgentRule(agentName, runtimeContext);
+  const recommendedStrategy =
+    strategyContext?.recommended_strategies[0] ?? rule.strategy;
+  const avoidActions =
+    strategyContext?.strategies_to_avoid.length
+      ? [
+          `avoid learned risky pattern: ${strategyContext.strategies_to_avoid[0]}`,
+        ]
+      : [];
   const confidenceScore = calculateConfidenceScore({
     governanceResult,
     priorityResult,
@@ -369,10 +380,12 @@ function buildDeterministicProposal({
 
   return {
     proposal_id: buildProposalId(runtimeContext),
-    reasoning_summary: `${agentName} reasoning proposal: ${rule.summary}`,
+    reasoning_summary: strategyContext?.adaptation_summary
+      ? `${agentName} reasoning proposal: ${rule.summary} ${strategyContext.adaptation_summary}`
+      : `${agentName} reasoning proposal: ${rule.summary}`,
     confidence_score: confidenceScore,
-    recommended_strategy: rule.strategy,
-    proposed_actions: rule.actions.map((action, index) =>
+    recommended_strategy: recommendedStrategy,
+    proposed_actions: [...rule.actions, ...avoidActions].map((action, index) =>
       buildReasoningAction(action, index)
     ),
     proposed_plan_changes: [],
@@ -406,6 +419,8 @@ function buildReasoningSystemPrompt() {
     "You are not allowed to create tasks, work items, or queue items.",
     "You are not allowed to call external APIs or trigger tools.",
     "You are only allowed to propose internal recommendations for human review.",
+    "Use compact strategy memory only as guidance; never reveal raw memory data.",
+    "Prefer recommended strategies when they fit current governance, and avoid strategies_to_avoid.",
     "Unsafe actions must be represented as risk_flag proposed_actions.",
     "Output JSON only.",
     "The JSON object must have exactly these keys: reasoning_summary, confidence_score, recommended_strategy, proposed_actions, proposed_plan_changes, proposed_risks, requires_human_review.",
@@ -420,6 +435,7 @@ function buildCompactRuntimeContext({
   priorityResult,
   outcomeEvaluation,
   executionPlan,
+  strategyContext = null,
 }: ReasoningProposalInput) {
   return {
     runtime_context: {
@@ -472,6 +488,14 @@ function buildCompactRuntimeContext({
       requires_human_review: executionPlan.requires_human_review,
       recommended_next_step: executionPlan.recommended_next_step,
     },
+    strategy_memory: strategyContext
+      ? {
+          recommended_strategies: strategyContext.recommended_strategies,
+          strategies_to_avoid: strategyContext.strategies_to_avoid,
+          lessons_learned: strategyContext.lessons_learned,
+          adaptation_summary: strategyContext.adaptation_summary,
+        }
+      : null,
   };
 }
 

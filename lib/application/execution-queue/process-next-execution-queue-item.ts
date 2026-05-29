@@ -57,6 +57,13 @@ import {
   persistReasoningLearningSignal,
   type ReasoningLearningSignal,
 } from "@/lib/application/agents/reasoning-learning";
+import {
+  buildReasoningStrategyContext,
+  persistStrategyMemoryRetrievedDecision,
+  retrieveReasoningStrategyMemory,
+  type ReasoningStrategyContext,
+  type ReasoningStrategyMemoryRetrieval,
+} from "@/lib/application/agents/reasoning-strategy-memory";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
@@ -193,6 +200,9 @@ type OutcomeStageOutput = {
 };
 
 type ReasoningStageOutput = {
+  strategyMemoryRetrieval: ReasoningStrategyMemoryRetrieval;
+  strategyMemoryContext: ReasoningStrategyContext;
+  strategyMemoryDecision: AgentDecisionRow;
   reasoningProposal: ReasoningProposal;
   reasoningResult: ReasoningProposalGenerationResult;
   persistedReasoningProposal: PersistedReasoningProposal;
@@ -496,6 +506,19 @@ export async function processNextExecutionQueueItem({
       reasoningEvaluationDecisionId:
         reasoning.output.reasoningEvaluationDecision.id,
       reasoningLearningSignal: reasoning.output.reasoningLearningSignal,
+      strategyMemoryContext: {
+        retrieval_id: reasoning.output.strategyMemoryRetrieval.retrieval_id,
+        retrieval_score:
+          reasoning.output.strategyMemoryRetrieval.retrieval_score,
+        strategy_summary:
+          reasoning.output.strategyMemoryRetrieval.strategy_summary,
+        adaptation_summary:
+          reasoning.output.strategyMemoryContext.adaptation_summary,
+        recommended_strategies:
+          reasoning.output.strategyMemoryContext.recommended_strategies,
+        strategies_to_avoid:
+          reasoning.output.strategyMemoryContext.strategies_to_avoid,
+      },
       idempotencyKeys: collectIdempotencyKeys([
         claim,
         context,
@@ -555,6 +578,7 @@ export async function processNextExecutionQueueItem({
       reasoning_evaluation_decision_id:
         reasoning.output.reasoningEvaluationDecision.id,
       reasoning_learning_signal: reasoning.output.reasoningLearningSignal,
+      strategy_memory_context: reasoning.output.strategyMemoryContext,
       outcome_feedback: outcome.output.outcomeFeedback,
       idempotency_keys: collectIdempotencyKeys([
         claim,
@@ -1105,12 +1129,38 @@ export async function generateReasoningProposalStage({
 
   try {
     const priorityResult = extractPriorityDecision(completedQueueItem);
+    const capabilityId = planning.executionPlan.capability_id;
+    const strategyMemoryRetrieval = await retrieveReasoningStrategyMemory({
+      supabase,
+      organizationId,
+      runtimeContext: context.runtimeContext,
+      agentName: context.agentName,
+      capabilityId,
+    });
+    const strategyMemoryContext = buildReasoningStrategyContext({
+      retrievedMemory: strategyMemoryRetrieval,
+      runtimeContext: context.runtimeContext,
+      governanceResult: governance.policyGovernance,
+    });
+    const strategyMemoryDecision =
+      await persistStrategyMemoryRetrievedDecision({
+        supabase,
+        organizationId,
+        agentExecutionId: context.agentExecution.id,
+        agentId:
+          context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
+        workItemId: context.queueItem.work_item_id,
+        retrievedMemory: strategyMemoryRetrieval,
+        strategyContext: strategyMemoryContext,
+        processedAt: context.processedAt,
+      });
     const reasoningInput = {
       runtimeContext: context.runtimeContext,
       governanceResult: governance.policyGovernance,
       priorityResult,
       outcomeEvaluation: outcome.outcomeEvaluation,
       executionPlan: planning.executionPlan,
+      strategyContext: strategyMemoryContext,
     };
     const deterministicResult = await generateReasoningProposalWithMetadata({
       ...reasoningInput,
@@ -1154,6 +1204,9 @@ export async function generateReasoningProposalStage({
           context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
         workItemId: context.queueItem.work_item_id,
         evaluation: reasoningEvaluation,
+        runtimeContext: context.runtimeContext,
+        reasoningProposal: reasoningResult.proposal,
+        executionPlan: planning.executionPlan,
         processedAt: context.processedAt,
       });
     const reasoningLearningSignal = deriveReasoningLearningSignal({
@@ -1171,10 +1224,18 @@ export async function generateReasoningProposalStage({
       agentId: context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
       workItemId: context.queueItem.work_item_id,
       learningSignal: reasoningLearningSignal,
+      runtimeContext: context.runtimeContext,
+      reasoningProposal: reasoningResult.proposal,
+      reasoningEvaluation,
+      outcomeEvaluation: outcome.outcomeEvaluation,
+      executionPlan: planning.executionPlan,
       processedAt: context.processedAt,
     });
 
     return stageOk(stage, idempotencyKey, {
+      strategyMemoryRetrieval,
+      strategyMemoryContext,
+      strategyMemoryDecision,
       reasoningProposal: reasoningResult.proposal,
       reasoningResult,
       persistedReasoningProposal,
@@ -1868,6 +1929,7 @@ async function completeAgentExecution({
   reasoningEvaluation,
   reasoningEvaluationDecisionId,
   reasoningLearningSignal,
+  strategyMemoryContext,
   idempotencyKeys,
   processedAt,
 }: {
@@ -1895,6 +1957,14 @@ async function completeAgentExecution({
   reasoningEvaluation: ReasoningProposalQualityEvaluation;
   reasoningEvaluationDecisionId: string;
   reasoningLearningSignal: ReasoningLearningSignal;
+  strategyMemoryContext: {
+    retrieval_id: string;
+    retrieval_score: number;
+    strategy_summary: string;
+    adaptation_summary: string;
+    recommended_strategies: string[];
+    strategies_to_avoid: string[];
+  };
   idempotencyKeys: Record<string, string>;
   processedAt: string;
 }) {
@@ -1932,6 +2002,7 @@ async function completeAgentExecution({
         reasoning_evaluation: reasoningEvaluation,
         reasoning_evaluation_decision_id: reasoningEvaluationDecisionId,
         reasoning_learning_signal: reasoningLearningSignal,
+        strategy_memory_context: strategyMemoryContext,
         idempotency_keys: idempotencyKeys,
       },
       completed_at: processedAt,

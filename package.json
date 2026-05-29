@@ -28,6 +28,7 @@
     "verify:reasoning-provider": "node scripts/verify-reasoning-provider.mjs",
     "verify:reasoning-evaluation": "node scripts/verify-reasoning-evaluation.mjs",
     "verify:reasoning-learning": "node scripts/verify-reasoning-learning.mjs",
+    "verify:strategy-memory": "node scripts/verify-strategy-memory.mjs",
     "verify:runtime-hardening": "node scripts/verify-runtime-hardening.mjs",
     "verify:queue-orchestrator": "node scripts/verify-queue-orchestrator.mjs",
     "verify:queue-orchestrator:live": "node scripts/verify-queue-orchestrator-live.mjs",

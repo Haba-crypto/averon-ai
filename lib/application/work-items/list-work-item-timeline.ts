@@ -623,6 +623,10 @@ function normalizeAgentDecision(
     return normalizeReasoningLearningSignalCreatedDecision(row);
   }
 
+  if (row.decision_type === "strategy_memory_retrieved") {
+    return normalizeStrategyMemoryRetrievedDecision(row);
+  }
+
   if (row.decision_type === "outcome_evaluated") {
     return normalizeOutcomeEvaluatedDecision(row);
   }
@@ -899,6 +903,75 @@ function normalizeReasoningLearningSignalCreatedDecision(
         getStringArray(row.metadata, "recommended_adjustments") ??
         getStringArray(outcome, "recommended_adjustments") ??
         [],
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeStrategyMemoryRetrievedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const successfulPatternCount =
+    getNumber(row.metadata, "successful_pattern_count") ??
+    getNumber(outcome, "successful_pattern_count") ??
+    0;
+  const failedPatternCount =
+    getNumber(row.metadata, "failed_pattern_count") ??
+    getNumber(outcome, "failed_pattern_count") ??
+    0;
+  const retrievalScore =
+    getNumber(row.metadata, "retrieval_score") ??
+    getNumber(outcome, "retrieval_score") ??
+    0;
+  const strategySummary =
+    getReviewString(row.metadata, "strategy_summary") ??
+    getReviewString(outcome, "strategy_summary") ??
+    row.rationale;
+  const adaptationSummary =
+    getReviewString(row.metadata, "adaptation_summary") ??
+    getReviewString(outcome, "adaptation_summary") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Strategy Memory Retrieved",
+    message:
+      failedPatternCount > 0
+        ? `Strategy memory retrieved and ${failedPatternCount} risky pattern(s) were avoided.`
+        : `Strategy memory retrieved with ${successfulPatternCount} matching successful pattern(s).`,
+    status: failedPatternCount > 0 ? "adapted" : "retrieved",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      retrieval_id:
+        getReviewString(row.metadata, "retrieval_id") ??
+        getReviewString(outcome, "retrieval_id"),
+      retrieval_score: retrievalScore,
+      matching_strategy_count:
+        getNumber(row.metadata, "matching_strategy_count") ??
+        getNumber(outcome, "matching_strategy_count"),
+      successful_pattern_count: successfulPatternCount,
+      failed_pattern_count: failedPatternCount,
+      strategy_summary: strategySummary,
+      adaptation_summary: adaptationSummary,
+      recommended_strategies:
+        getStringArray(row.metadata, "recommended_strategies") ??
+        getStringArray(outcome, "recommended_strategies") ??
+        [],
+      strategies_to_avoid:
+        getStringArray(row.metadata, "strategies_to_avoid") ??
+        getStringArray(outcome, "strategies_to_avoid") ??
+        [],
+      lessons_learned:
+        getStringArray(row.metadata, "lessons_learned") ?? [],
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
