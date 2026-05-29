@@ -8,6 +8,9 @@
     "verify:routing": "node scripts/verify-agent-routing.mjs",
     "verify:handoff": "node scripts/verify-agent-handoff.mjs",
     "verify:ownership": "node scripts/verify-work-item-ownership.mjs",
+    "verify:human-review": "node scripts/verify-human-review-queue.mjs",
+    "verify:review-intelligence": "node scripts/verify-review-intelligence.mjs",
+    "verify:human-feedback": "node scripts/verify-human-decision-feedback.mjs",
     "start": "next start",
     "lint": "eslint"
   },

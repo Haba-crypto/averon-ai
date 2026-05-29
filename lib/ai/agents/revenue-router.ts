@@ -174,6 +174,25 @@ const ROUTING_RULES: Record<RevenueAgent, RoutingRule[]> = {
   ],
   "Operations Agent": [
     {
+      signal: "human review gate",
+      patterns: [
+        /нужно\s+согласование/i,
+        /согласован/i,
+        /требуется\s+юридическая\s+проверка/i,
+        /юридическ/i,
+        /проверка\s+договора/i,
+        /закупк/i,
+        /\bapproval\b/i,
+        /\bapproval\s+from\b/i,
+        /\bprocurement\b/i,
+        /\blegal\b/i,
+        /\blegal\s+review\b/i,
+        /\bcontract\s+review\b/i,
+        /\bcompliance\b/i,
+      ],
+      weight: 3,
+    },
+    {
       signal: "task creation",
       patterns: [/создай\s+задачу/i, /поставь\s+задачу/i, /\bcreate\s+(a\s+)?task\b/i],
       weight: 2,

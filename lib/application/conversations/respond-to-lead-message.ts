@@ -18,6 +18,7 @@ import {
   isAgentHandoffTarget,
   type HandoffDecision,
 } from "@/lib/application/agents/handoff-decision";
+import { createHumanReview } from "@/lib/application/human-reviews/create-human-review";
 import { extractAndStoreConversationMemory } from "@/lib/application/memory/conversation-memory-extraction";
 import {
   countRelevantMemoryEntries,
@@ -131,8 +132,10 @@ export async function respondToLeadMessage({
           organizationId,
           workItemId: workItem.id,
         });
-  const handoffSourceAgent =
-    latestAgentExecution?.agent_name ?? activeAgent;
+  const handoffSourceAgent = resolveHandoffSourceAgent({
+    activeAgent,
+    latestAgentExecution,
+  });
   const initialHandoffDecision = decideAgentHandoff({
     sourceAgent: handoffSourceAgent,
     message,
@@ -281,6 +284,7 @@ export async function respondToLeadMessage({
       supabase,
       organizationId,
       workItem,
+      agentExecution,
       sourceAgent: handoffSourceAgent,
       handoffDecision,
     });
@@ -882,16 +886,32 @@ function normalizeWorkItemOwnerType(
   return "unassigned";
 }
 
+function resolveHandoffSourceAgent({
+  activeAgent,
+  latestAgentExecution,
+}: {
+  activeAgent: string;
+  latestAgentExecution: LatestAgentExecutionReference | null;
+}) {
+  if (activeAgent === "Operations Agent") {
+    return activeAgent;
+  }
+
+  return latestAgentExecution?.agent_name ?? activeAgent;
+}
+
 async function tryUpdateHandoffOwnership({
   supabase,
   organizationId,
   workItem,
+  agentExecution,
   sourceAgent,
   handoffDecision,
 }: {
   supabase: SupabaseClient;
   organizationId: string;
   workItem: WorkItemReference | null;
+  agentExecution: AgentExecutionRecord | null;
   sourceAgent: string;
   handoffDecision: HandoffDecision;
 }) {
@@ -901,14 +921,15 @@ async function tryUpdateHandoffOwnership({
 
   try {
     if (handoffDecision.target_agent === "Human Review") {
-      await updateWorkItemOwnership({
+      await createHumanReview({
         supabase,
-        workItemId: workItem.id,
         organizationId,
-        ownerType: "human",
-        reason: handoffDecision.reason,
+        workItemId: workItem.id,
         sourceAgent,
-        targetAgent: "Human Review",
+        reviewType: "handoff",
+        reviewReason: handoffDecision.reason,
+        priority: "high",
+        agentExecutionId: agentExecution?.id ?? null,
       });
 
       return;
@@ -952,6 +973,27 @@ async function tryUpdateHandoffOwnership({
       targetAgent: handoffDecision.target_agent,
       error,
     });
+
+    if (handoffDecision.target_agent === "Human Review") {
+      try {
+        await updateWorkItemOwnership({
+          supabase,
+          workItemId: workItem.id,
+          organizationId,
+          ownerType: "human",
+          reason: handoffDecision.reason,
+          sourceAgent,
+          targetAgent: "Human Review",
+        });
+      } catch (ownershipError) {
+        console.error("HUMAN REVIEW FALLBACK OWNERSHIP UPDATE FAILED", {
+          organizationId,
+          workItemId: workItem.id,
+          sourceAgent,
+          error: ownershipError,
+        });
+      }
+    }
   }
 }
 

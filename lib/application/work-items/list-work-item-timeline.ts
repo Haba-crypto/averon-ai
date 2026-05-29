@@ -199,11 +199,22 @@ type HumanReviewRow = {
   agent_decision_id: string | null;
   requested_by: string | null;
   reviewer_user_id: string | null;
+  source_agent_id: string | null;
+  source_agent_name: string | null;
   status: string | null;
   review_type: string | null;
+  review_reason: string | null;
+  review_title: string | null;
+  review_summary: string | null;
+  review_context: Record<string, unknown> | null;
+  recommended_action: string | null;
+  priority: string | null;
   decision: string | null;
   requested_at: string | null;
   reviewed_at: string | null;
+  reviewed_by: string | null;
+  review_outcome: string | null;
+  review_notes: string | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -331,11 +342,22 @@ async function listHumanReviewRows(options: TimelineQueryOptions) {
         "agent_decision_id",
         "requested_by",
         "reviewer_user_id",
+        "source_agent_id",
+        "source_agent_name",
         "status",
         "review_type",
+        "review_reason",
+        "review_title",
+        "review_summary",
+        "review_context",
+        "recommended_action",
+        "priority",
         "decision",
         "requested_at",
         "reviewed_at",
+        "reviewed_by",
+        "review_outcome",
+        "review_notes",
         "created_at",
         "updated_at",
       ].join(", ")
@@ -464,6 +486,14 @@ function normalizeAgentDecision(
     return normalizeHandoffDecision(row);
   }
 
+  if (row.decision_type === "human_review_requested") {
+    return normalizeHumanReviewRequestedDecision(row);
+  }
+
+  if (row.decision_type === "human_review_decision") {
+    return normalizeHumanReviewDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -516,6 +546,121 @@ function normalizeHandoffDecision(
       source_agent: sourceAgent,
       target_agent: targetAgent,
       reason,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeHumanReviewRequestedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const reviewId =
+    getReviewString(row.metadata, "review_id") ??
+    getReviewString(outcome, "review_id");
+  const reviewType =
+    getReviewString(row.metadata, "review_type") ??
+    getReviewString(outcome, "review_type");
+  const reason =
+    getReviewString(row.metadata, "reason") ??
+    getReviewString(outcome, "reason") ??
+    row.rationale;
+  const priority =
+    getReviewString(row.metadata, "priority") ??
+    getReviewString(outcome, "priority");
+  const reviewTitle =
+    getReviewString(row.metadata, "review_title") ??
+    getReviewString(outcome, "review_title");
+  const reviewSummary =
+    getReviewString(row.metadata, "review_summary") ??
+    getReviewString(outcome, "review_summary");
+  const recommendedAction =
+    getReviewString(row.metadata, "recommended_action") ??
+    getReviewString(outcome, "recommended_action");
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Human Review Requested",
+    message: reviewTitle ?? reason,
+    status: "pending",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      review_id: reviewId,
+      review_type: reviewType,
+      review_title: reviewTitle,
+      review_summary: reviewSummary,
+      recommended_action: recommendedAction,
+      reason,
+      priority,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeHumanReviewDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const reviewStatus =
+    getReviewString(row.metadata, "review_status") ??
+    getReviewString(outcome, "review_status");
+  const reviewOutcome =
+    getReviewString(row.metadata, "review_outcome") ??
+    getReviewString(outcome, "review_outcome");
+  const reviewNotes =
+    getReviewString(row.metadata, "review_notes") ??
+    getReviewString(outcome, "review_notes");
+  const nextOwner =
+    getFeedbackOwner(row.metadata, "next_owner") ??
+    getFeedbackOwner(outcome, "next_owner");
+  const recommendedNextAgent =
+    getFeedbackOwner(row.metadata, "recommended_next_agent") ??
+    getFeedbackOwner(outcome, "recommended_next_agent");
+  const nextAgentName =
+    getOwnershipString(recommendedNextAgent, "name") ??
+    getOwnershipString(nextOwner, "owner_agent_name") ??
+    "Operations Agent";
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: buildHumanReviewDecisionTitle({
+      reviewStatus,
+      nextAgentName,
+    }),
+    message: reviewNotes ?? reviewOutcome ?? row.rationale,
+    status: reviewStatus,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      review_id:
+        getReviewString(row.metadata, "review_id") ??
+        getReviewString(outcome, "review_id"),
+      review_status: reviewStatus,
+      review_outcome: reviewOutcome,
+      review_notes: reviewNotes,
+      decided_by:
+        getReviewString(row.metadata, "decided_by") ??
+        getReviewString(outcome, "decided_by"),
+      previous_owner:
+        getFeedbackOwner(row.metadata, "previous_owner") ??
+        getFeedbackOwner(outcome, "previous_owner"),
+      next_owner: nextOwner,
+      recommended_next_agent: recommendedNextAgent,
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
@@ -580,12 +725,8 @@ function normalizeHumanReview(
     id: `human_reviews:${row.id}`,
     type: "human_review",
     source: "human_reviews",
-    title: row.review_type
-      ? `Human review: ${row.review_type}`
-      : "Human review",
-    message: row.decision
-      ? `Decision: ${row.decision}`
-      : "Human review requested",
+    title: buildHumanReviewTitle(row.status),
+    message: buildHumanReviewMessage(row),
     status: row.status,
     agent_id: null,
     confidence: null,
@@ -596,11 +737,83 @@ function normalizeHumanReview(
       agent_decision_id: row.agent_decision_id,
       requested_by: row.requested_by,
       reviewer_user_id: row.reviewer_user_id,
+      source_agent_id: row.source_agent_id,
+      source_agent_name: row.source_agent_name,
+      review_type: row.review_type,
+      review_reason: row.review_reason,
+      review_title: row.review_title,
+      review_summary: row.review_summary,
+      review_context: row.review_context,
+      recommended_action: row.recommended_action,
+      priority: row.priority,
       requested_at: row.requested_at,
       reviewed_at: row.reviewed_at,
+      reviewed_by: row.reviewed_by,
+      review_outcome: row.review_outcome,
+      review_notes: row.review_notes,
       updated_at: row.updated_at,
     },
   };
+}
+
+export function normalizeHumanReviewForVerification(
+  row: HumanReviewRow
+) {
+  return normalizeHumanReview(row);
+}
+
+function buildHumanReviewTitle(status: string | null) {
+  if (status === "approved") {
+    return "Human Review Approved";
+  }
+
+  if (status === "rejected") {
+    return "Human Review Rejected";
+  }
+
+  if (status === "completed") {
+    return "Human Review Completed";
+  }
+
+  if (status === "in_review") {
+    return "Human Review In Review";
+  }
+
+  return "Human Review Requested";
+}
+
+function buildHumanReviewMessage(row: HumanReviewRow) {
+  if (row.review_notes) {
+    return row.review_notes;
+  }
+
+  if (row.review_outcome) {
+    return row.review_outcome;
+  }
+
+  if (row.review_title) {
+    return row.review_title;
+  }
+
+  if (row.review_summary) {
+    return row.review_summary;
+  }
+
+  if (row.recommended_action) {
+    return row.recommended_action;
+  }
+
+  if (row.review_reason) {
+    return row.review_reason;
+  }
+
+  if (row.decision) {
+    return `Decision: ${row.decision}`;
+  }
+
+  return row.review_type
+    ? `Review type: ${row.review_type}`
+    : "Human review requested";
 }
 
 function normalizeMemoryEntry(
@@ -704,6 +917,14 @@ function buildOwnershipChangeTitle({
   targetAgent: string | null;
   ownershipStatus: string | null;
 }) {
+  if (ownershipStatus === "blocked") {
+    return "Work blocked by human decision";
+  }
+
+  if (ownershipStatus === "completed") {
+    return "Human review completed";
+  }
+
   if (newOwnerType === "human" || newOwnerType === "shared") {
     return "Work ownership moved to Human Review";
   }
@@ -729,6 +950,28 @@ function buildOwnershipChangeTitle({
   }
 
   return "Work ownership changed";
+}
+
+function buildHumanReviewDecisionTitle({
+  reviewStatus,
+  nextAgentName,
+}: {
+  reviewStatus: string | null;
+  nextAgentName: string;
+}) {
+  if (reviewStatus === "approved") {
+    return `Work returned to ${nextAgentName}`;
+  }
+
+  if (reviewStatus === "rejected") {
+    return "Work blocked by human decision";
+  }
+
+  if (reviewStatus === "completed") {
+    return "Human Review Completed";
+  }
+
+  return "Human review decision recorded";
 }
 
 function getOwnershipOwner(
@@ -815,6 +1058,26 @@ function getHandoffBoolean(row: AgentDecisionRow, key: string) {
   const outcomeValue = decisionOutcome?.[key];
 
   return typeof outcomeValue === "boolean" ? outcomeValue : null;
+}
+
+function getReviewString(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const rawValue = value?.[key];
+
+  return typeof rawValue === "string" ? rawValue : null;
+}
+
+function getFeedbackOwner(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const rawValue = value?.[key];
+
+  return rawValue && typeof rawValue === "object"
+    ? (rawValue as Record<string, unknown>)
+    : null;
 }
 
 function getDecisionOutcome(

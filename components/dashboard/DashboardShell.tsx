@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Radio,
+  SearchCheck,
   Target,
   Users,
 } from "lucide-react";
@@ -90,6 +91,11 @@ const navigation = [
     labelKey: "executionQueue",
     href: "/dashboard/tasks",
     icon: CheckCircle2,
+  },
+  {
+    labelKey: "reviewInbox",
+    href: "/dashboard/reviews",
+    icon: SearchCheck,
   },
   {
     labelKey: "aiAgents",

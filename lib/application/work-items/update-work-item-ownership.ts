@@ -10,7 +10,9 @@ export type WorkItemOwnershipStatus =
   | "unassigned"
   | "assigned"
   | "transferred"
-  | "human_review";
+  | "human_review"
+  | "blocked"
+  | "completed";
 
 export type WorkItemOwnershipAgent = {
   id?: string | null;
@@ -30,6 +32,7 @@ export type UpdateWorkItemOwnershipInput = {
   reason?: string | null;
   sourceAgent?: WorkItemOwnershipAgent | string | null;
   targetAgent?: WorkItemOwnershipAgent | string | null;
+  ownershipStatus?: WorkItemOwnershipStatus | null;
 };
 
 export type WorkItemOwnershipRecord = {
@@ -56,6 +59,7 @@ export async function updateWorkItemOwnership({
   reason = null,
   sourceAgent = null,
   targetAgent = null,
+  ownershipStatus = null,
 }: UpdateWorkItemOwnershipInput) {
   const { data: existingWorkItem, error: existingError } =
     await supabase
@@ -95,12 +99,14 @@ export async function updateWorkItemOwnership({
       name: ownerAgentName,
       role: ownerAgentRole,
     });
-  const status = resolveOwnershipStatus({
-    ownerType,
-    previous: existingWorkItem,
-    ownerAgentId,
-    ownerAgentName,
-  });
+  const status =
+    ownershipStatus ??
+    resolveOwnershipStatus({
+      ownerType,
+      previous: existingWorkItem,
+      ownerAgentId,
+      ownerAgentName,
+    });
   const changedAt = new Date().toISOString();
 
   const { data: updatedWorkItem, error: updateError } =
