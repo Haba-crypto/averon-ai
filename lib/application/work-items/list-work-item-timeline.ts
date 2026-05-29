@@ -577,6 +577,10 @@ function normalizeAgentDecision(
     return normalizeCapabilitySideEffectsAppliedDecision(row);
   }
 
+  if (row.decision_type === "follow_up_work_generated") {
+    return normalizeFollowUpWorkGeneratedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -817,6 +821,62 @@ function normalizeCapabilitySideEffectsAppliedDecision(
         getBoolean(row.metadata, "updated_work_item") ??
         getBoolean(outcome, "updated_work_item"),
       skipped_duplicates: skippedDuplicates,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeFollowUpWorkGeneratedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const createdWorkItemIds =
+    getStringArray(row.metadata, "created_work_item_ids") ??
+    getStringArray(outcome, "created_work_item_ids") ??
+    [];
+  const createdQueueItemIds =
+    getStringArray(row.metadata, "created_queue_item_ids") ??
+    getStringArray(outcome, "created_queue_item_ids") ??
+    [];
+  const capabilityId =
+    getReviewString(row.metadata, "capability_id") ??
+    getReviewString(outcome, "capability_id") ??
+    "unknown_capability";
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Follow-up Work Generated",
+    message:
+      row.rationale ??
+      "Operations Agent created follow-up work after human approval.",
+    status: "follow_up_work_generated",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      parent_work_item_id:
+        getReviewString(row.metadata, "parent_work_item_id") ??
+        getReviewString(outcome, "parent_work_item_id"),
+      created_work_item_ids: createdWorkItemIds,
+      created_queue_item_ids: createdQueueItemIds,
+      capability_id: capabilityId,
+      capability_name:
+        getReviewString(row.metadata, "capability_name") ??
+        getReviewString(outcome, "capability_name"),
+      reason:
+        getReviewString(row.metadata, "reason") ??
+        getReviewString(outcome, "reason") ??
+        row.rationale,
+      skipped_duplicates:
+        getArray(row.metadata, "skipped_duplicates") ??
+        getArray(outcome, "skipped_duplicates") ??
+        [],
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };

@@ -15,6 +15,10 @@ import {
   applyCapabilitySideEffects,
   type CapabilitySideEffectsResult,
 } from "@/lib/application/agents/capability-side-effects";
+import {
+  generateFollowUpWork,
+  type WorkGenerationResult,
+} from "@/lib/application/agents/work-generation";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 
 type ProcessNextExecutionQueueItemInput = {
@@ -155,6 +159,8 @@ export async function processNextExecutionQueueItem({
     });
     let sideEffectsResult: CapabilitySideEffectsResult | null = null;
     let sideEffectsError: string | null = null;
+    let workGenerationResult: WorkGenerationResult | null = null;
+    let workGenerationError: string | null = null;
 
     try {
       sideEffectsResult = await applyCapabilitySideEffects({
@@ -179,6 +185,28 @@ export async function processNextExecutionQueueItem({
       });
     }
 
+    try {
+      workGenerationResult = await generateFollowUpWork({
+        supabase,
+        organizationId,
+        parentWorkItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        capabilityId: capabilityExecution.capability_id,
+        capabilityResult: capabilityExecution,
+        runtimeContext,
+        processedAt,
+      });
+    } catch (error: unknown) {
+      workGenerationError = getErrorMessage(error);
+      console.error("WORK GENERATION FAILED", {
+        organizationId,
+        parentWorkItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        capabilityId: capabilityExecution.capability_id,
+        error,
+      });
+    }
+
     const agentDecision = await createCapabilityDecision({
       supabase,
       organizationId,
@@ -189,6 +217,8 @@ export async function processNextExecutionQueueItem({
       capabilityExecution,
       sideEffectsResult,
       sideEffectsError,
+      workGenerationResult,
+      workGenerationError,
       runtimeContextSummary,
       processedAt,
     });
@@ -203,6 +233,8 @@ export async function processNextExecutionQueueItem({
       capabilityExecution,
       sideEffectsResult,
       sideEffectsError,
+      workGenerationResult,
+      workGenerationError,
       processedAt,
     });
 
@@ -237,6 +269,8 @@ export async function processNextExecutionQueueItem({
       next_action: capabilityExecution.recommended_next_action,
       side_effects: sideEffectsResult,
       side_effects_error: sideEffectsError,
+      work_generation: workGenerationResult,
+      work_generation_error: workGenerationError,
       openai_called: false,
       processed_count: 1,
     };
@@ -510,6 +544,8 @@ async function createCapabilityDecision({
   capabilityExecution,
   sideEffectsResult,
   sideEffectsError,
+  workGenerationResult,
+  workGenerationError,
   runtimeContextSummary,
   processedAt,
 }: {
@@ -522,6 +558,8 @@ async function createCapabilityDecision({
   capabilityExecution: AgentCapabilityExecutionResult;
   sideEffectsResult: CapabilitySideEffectsResult | null;
   sideEffectsError: string | null;
+  workGenerationResult: WorkGenerationResult | null;
+  workGenerationError: string | null;
   runtimeContextSummary: ReturnType<typeof summarizeAgentRuntimeContext>;
   processedAt: string;
 }) {
@@ -538,6 +576,8 @@ async function createCapabilityDecision({
     created_decisions: capabilityExecution.created_decisions ?? [],
     side_effects_result: sideEffectsResult,
     side_effects_error: sideEffectsError,
+    work_generation_result: workGenerationResult,
+    work_generation_error: workGenerationError,
     runtime_context_summary: runtimeContextSummary,
     processed_at: processedAt,
   };
@@ -585,6 +625,8 @@ async function completeAgentExecution({
   capabilityExecution,
   sideEffectsResult,
   sideEffectsError,
+  workGenerationResult,
+  workGenerationError,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -596,6 +638,8 @@ async function completeAgentExecution({
   capabilityExecution: AgentCapabilityExecutionResult;
   sideEffectsResult: CapabilitySideEffectsResult | null;
   sideEffectsError: string | null;
+  workGenerationResult: WorkGenerationResult | null;
+  workGenerationError: string | null;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -617,6 +661,8 @@ async function completeAgentExecution({
         created_decisions: capabilityExecution.created_decisions ?? [],
         side_effects_result: sideEffectsResult,
         side_effects_error: sideEffectsError,
+        work_generation_result: workGenerationResult,
+        work_generation_error: workGenerationError,
       },
       completed_at: processedAt,
       updated_at: processedAt,
