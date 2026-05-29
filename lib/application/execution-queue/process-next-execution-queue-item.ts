@@ -36,11 +36,19 @@ import {
   evaluatePolicyGovernance,
   type PolicyGovernanceDecision,
 } from "@/lib/application/agents/policy-governance";
+import {
+  evaluateReasoningProposal,
+  generateReasoningProposal,
+  persistReasoningProposalDecision,
+  type ReasoningProposal,
+  type ReasoningProposalGovernanceResult,
+} from "@/lib/application/agents/reasoning-proposal";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
   evaluateAndPersistWorkPriority,
   isBlockedPriority,
+  type WorkPriorityDecision,
 } from "@/lib/application/execution-queue/priority-scheduling";
 
 type ProcessNextExecutionQueueItemInput = {
@@ -374,6 +382,29 @@ export async function processNextExecutionQueueItem({
       queueItem: completedQueueItem,
       workItem,
     });
+    const priorityResult = extractPriorityDecision(completedQueueItem);
+    const reasoningProposal = await generateReasoningProposal({
+      runtimeContext,
+      governanceResult: policyGovernance,
+      priorityResult,
+      outcomeEvaluation,
+      executionPlan,
+    });
+    const reasoningProposalGovernance = evaluateReasoningProposal({
+      proposal: reasoningProposal,
+      governanceResult: policyGovernance,
+    });
+    const reasoningProposalDecision =
+      await persistReasoningProposalDecision({
+        supabase,
+        organizationId,
+        agentExecutionId,
+        agentId: assignedAgent?.id ?? claimedQueueItem.assigned_agent_id,
+        workItemId: claimedQueueItem.work_item_id,
+        reasoningProposal,
+        proposalGovernance: reasoningProposalGovernance,
+        processedAt,
+      });
 
     await completeAgentExecution({
       supabase,
@@ -394,6 +425,9 @@ export async function processNextExecutionQueueItem({
       policyGovernance,
       policyGovernanceDecisionId: policyGovernanceDecision.id,
       outcomeEvaluation,
+      reasoningProposal,
+      reasoningProposalGovernance,
+      reasoningProposalDecisionId: reasoningProposalDecision.id,
       processedAt,
     });
 
@@ -439,6 +473,9 @@ export async function processNextExecutionQueueItem({
       policy_governance: policyGovernance,
       policy_governance_decision_id: policyGovernanceDecision.id,
       outcome_evaluation: outcomeEvaluation,
+      reasoning_proposal: reasoningProposal,
+      reasoning_proposal_governance: reasoningProposalGovernance,
+      reasoning_proposal_decision_id: reasoningProposalDecision.id,
       outcome_feedback: outcomeFeedback,
       openai_called: false,
       processed_count: 1,
@@ -1018,6 +1055,9 @@ async function completeAgentExecution({
   policyGovernance,
   policyGovernanceDecisionId,
   outcomeEvaluation,
+  reasoningProposal,
+  reasoningProposalGovernance,
+  reasoningProposalDecisionId,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -1038,6 +1078,9 @@ async function completeAgentExecution({
   policyGovernance: PolicyGovernanceDecision;
   policyGovernanceDecisionId: string;
   outcomeEvaluation: ExecutionOutcomeEvaluation;
+  reasoningProposal: ReasoningProposal;
+  reasoningProposalGovernance: ReasoningProposalGovernanceResult;
+  reasoningProposalDecisionId: string;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -1068,6 +1111,9 @@ async function completeAgentExecution({
         policy_governance: policyGovernance,
         policy_governance_decision_id: policyGovernanceDecisionId,
         outcome_evaluation: outcomeEvaluation,
+        reasoning_proposal: reasoningProposal,
+        reasoning_proposal_governance: reasoningProposalGovernance,
+        reasoning_proposal_decision_id: reasoningProposalDecisionId,
       },
       completed_at: processedAt,
       updated_at: processedAt,
@@ -1294,6 +1340,64 @@ function getAgentRole(agent: AgentRow | null) {
   const role = agent?.config?.role;
 
   return typeof role === "string" ? role : null;
+}
+
+function extractPriorityDecision(
+  queueItem: ProcessedQueueItem
+): WorkPriorityDecision | null {
+  const metadata = queueItem.metadata ?? {};
+  const priorityScore = getMetadataNumber(metadata, "priority_score");
+  const urgencyScore = getMetadataNumber(metadata, "urgency_score");
+  const businessImpactScore = getMetadataNumber(
+    metadata,
+    "business_impact_score"
+  );
+  const riskScore = getMetadataNumber(metadata, "risk_score");
+  const schedulingBucket = metadata.scheduling_bucket;
+  const recommendedExecutionOrder = getMetadataNumber(
+    metadata,
+    "recommended_execution_order"
+  );
+  const rationale = metadata.priority_rationale;
+  const signals = metadata.priority_signals;
+
+  if (
+    priorityScore === null ||
+    urgencyScore === null ||
+    businessImpactScore === null ||
+    riskScore === null ||
+    !(
+      schedulingBucket === "now" ||
+      schedulingBucket === "next" ||
+      schedulingBucket === "later" ||
+      schedulingBucket === "blocked"
+    ) ||
+    recommendedExecutionOrder === null ||
+    typeof rationale !== "string" ||
+    !Array.isArray(signals)
+  ) {
+    return null;
+  }
+
+  return {
+    priority_score: priorityScore,
+    urgency_score: urgencyScore,
+    business_impact_score: businessImpactScore,
+    risk_score: riskScore,
+    scheduling_bucket: schedulingBucket,
+    recommended_execution_order: recommendedExecutionOrder,
+    rationale,
+    signals: signals as WorkPriorityDecision["signals"],
+  };
+}
+
+function getMetadataNumber(
+  metadata: Record<string, unknown>,
+  key: string
+) {
+  const value = metadata[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function getErrorMessage(error: unknown) {

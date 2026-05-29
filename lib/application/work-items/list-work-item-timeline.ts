@@ -611,6 +611,10 @@ function normalizeAgentDecision(
     return normalizePolicyGovernanceEvaluatedDecision(row);
   }
 
+  if (row.decision_type === "reasoning_proposal_created") {
+    return normalizeReasoningProposalCreatedDecision(row);
+  }
+
   if (row.decision_type === "outcome_evaluated") {
     return normalizeOutcomeEvaluatedDecision(row);
   }
@@ -685,6 +689,64 @@ function normalizeOutcomeEvaluatedDecision(
       feedback_summary: summary,
       signals:
         getArray(row.metadata, "signals") ?? getArray(outcome, "signals"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeReasoningProposalCreatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const confidenceScore =
+    getNumber(row.metadata, "confidence_score") ??
+    getNumber(outcome, "confidence_score") ??
+    (row.confidence === null ? 0 : Math.round(Number(row.confidence) * 100));
+  const acceptedActions =
+    getStringArray(row.metadata, "accepted_actions") ??
+    getStringArray(outcome, "accepted_actions") ??
+    [];
+  const rejectedActions =
+    getStringArray(row.metadata, "rejected_actions") ??
+    getStringArray(outcome, "rejected_actions") ??
+    [];
+  const strategy =
+    getReviewString(row.metadata, "strategy") ??
+    getReviewString(outcome, "strategy") ??
+    "proposal-only reasoning";
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Reasoning Proposal Created",
+    message:
+      rejectedActions.length > 0
+        ? `Reasoning proposal accepted with ${acceptedActions.length} safe actions and ${rejectedActions.length} rejected actions.`
+        : `Reasoning proposal created with confidence ${confidenceScore}%.`,
+    status: rejectedActions.length > 0 ? "partially_accepted" : "accepted",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      proposal_id:
+        getReviewString(row.metadata, "proposal_id") ??
+        getReviewString(outcome, "proposal_id"),
+      confidence_score: confidenceScore,
+      strategy,
+      accepted_actions: acceptedActions,
+      rejected_actions: rejectedActions,
+      governance_notes:
+        getStringArray(row.metadata, "governance_notes") ??
+        getStringArray(outcome, "governance_notes") ??
+        [],
+      reasoning_proposal: getRecord(row.metadata, "reasoning_proposal"),
+      proposal_governance:
+        getRecord(row.metadata, "proposal_governance"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
