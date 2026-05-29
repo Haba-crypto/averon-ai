@@ -456,6 +456,10 @@ export function normalizeAgentExecutionForVerification(
 function normalizeAgentDecision(
   row: AgentDecisionRow
 ): WorkItemTimelineItem {
+  if (row.decision_type === "ownership_change") {
+    return normalizeOwnershipChangeDecision(row);
+  }
+
   if (row.decision_type === "handoff") {
     return normalizeHandoffDecision(row);
   }
@@ -512,6 +516,52 @@ function normalizeHandoffDecision(
       source_agent: sourceAgent,
       target_agent: targetAgent,
       reason,
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeOwnershipChangeDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const previousOwner = getOwnershipOwner(outcome, "previous_owner");
+  const newOwner = getOwnershipOwner(outcome, "new_owner");
+  const sourceAgent = getOwnershipAgentName(outcome, "source_agent");
+  const targetAgent = getOwnershipAgentName(outcome, "target_agent");
+  const reason = getOwnershipString(outcome, "reason") ?? row.rationale;
+  const ownershipStatus =
+    getOwnershipString(newOwner, "ownership_status") ??
+    getOwnershipString(row.metadata, "ownership_status");
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: buildOwnershipChangeTitle({
+      previousOwnerName: formatOwnershipOwner(previousOwner),
+      newOwnerName: formatOwnershipOwner(newOwner),
+      newOwnerType: getOwnershipString(newOwner, "owner_type"),
+      sourceAgent,
+      targetAgent,
+      ownershipStatus,
+    }),
+    message: reason,
+    status: ownershipStatus,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      previous_owner: previousOwner,
+      new_owner: newOwner,
+      source_agent: sourceAgent,
+      target_agent: targetAgent,
+      reason,
+      changed_at: getOwnershipString(outcome, "changed_at"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
@@ -637,6 +687,108 @@ function buildHandoffTitle({
   }
 
   return `${sourceAgent} handed work to ${targetAgent}`;
+}
+
+function buildOwnershipChangeTitle({
+  previousOwnerName,
+  newOwnerName,
+  newOwnerType,
+  sourceAgent,
+  targetAgent,
+  ownershipStatus,
+}: {
+  previousOwnerName: string | null;
+  newOwnerName: string | null;
+  newOwnerType: string | null;
+  sourceAgent: string | null;
+  targetAgent: string | null;
+  ownershipStatus: string | null;
+}) {
+  if (newOwnerType === "human" || newOwnerType === "shared") {
+    return "Work ownership moved to Human Review";
+  }
+
+  if (
+    ownershipStatus === "transferred" &&
+    sourceAgent &&
+    targetAgent
+  ) {
+    return `Work ownership transferred from ${sourceAgent} to ${targetAgent}`;
+  }
+
+  if (
+    ownershipStatus === "transferred" &&
+    previousOwnerName &&
+    newOwnerName
+  ) {
+    return `Work ownership transferred from ${previousOwnerName} to ${newOwnerName}`;
+  }
+
+  if (newOwnerName) {
+    return `Work ownership assigned to ${newOwnerName}`;
+  }
+
+  return "Work ownership changed";
+}
+
+function getOwnershipOwner(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const owner = value?.[key];
+
+  return owner && typeof owner === "object"
+    ? (owner as Record<string, unknown>)
+    : null;
+}
+
+function getOwnershipAgentName(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const agent = value?.[key];
+
+  if (typeof agent === "string") {
+    return agent;
+  }
+
+  if (agent && typeof agent === "object") {
+    const name = (agent as Record<string, unknown>).name;
+
+    return typeof name === "string" ? name : null;
+  }
+
+  return null;
+}
+
+function formatOwnershipOwner(
+  owner: Record<string, unknown> | null
+) {
+  const ownerType = getOwnershipString(owner, "owner_type");
+  const agentName = getOwnershipString(owner, "owner_agent_name");
+
+  if (ownerType === "ai" && agentName) {
+    return agentName;
+  }
+
+  if (ownerType === "human") {
+    return "Human Review";
+  }
+
+  if (ownerType === "shared") {
+    return "Shared Human Review";
+  }
+
+  return null;
+}
+
+function getOwnershipString(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const rawValue = value?.[key];
+
+  return typeof rawValue === "string" ? rawValue : null;
 }
 
 function getHandoffString(row: AgentDecisionRow, key: string) {

@@ -29,6 +29,11 @@ import {
 } from "@/lib/application/memory/memory-retrieval";
 import { routeOperationalWork } from "@/lib/application/workflow-actions/operational-routing";
 import { resolveWorkItemForLead } from "@/lib/application/work-items/resolve-work-item-for-lead";
+import {
+  isWorkItemOwnerEmpty,
+  updateWorkItemOwnership,
+  type WorkItemOwnerType,
+} from "@/lib/application/work-items/update-work-item-ownership";
 
 type RespondToLeadMessageInput = {
   supabase: SupabaseClient;
@@ -61,6 +66,9 @@ type AgentExecutionRecord = {
 
 type WorkItemReference = {
   id: string;
+  owner_type?: string | null;
+  owner_agent_id?: string | null;
+  owner_user_id?: string | null;
 };
 
 type LatestAgentExecutionReference = {
@@ -141,6 +149,14 @@ export async function respondToLeadMessage({
   });
   const serializedAgentIdentity =
     serializeAgentIdentity(agentIdentity);
+  await tryAssignRoutedWorkItemOwnership({
+    supabase,
+    organizationId,
+    workItem,
+    activeAgent,
+    agentIdentity,
+    reason: agentRoutingDecision.rationale,
+  });
   const openai = getOpenAIClient();
   const recentConversationTurns =
     await loadRecentConversationTurns({
@@ -259,6 +275,14 @@ export async function respondToLeadMessage({
         active_agent: activeAgent,
         agent_identity: serializedAgentIdentity,
       },
+    });
+
+    await tryUpdateHandoffOwnership({
+      supabase,
+      organizationId,
+      workItem,
+      sourceAgent: handoffSourceAgent,
+      handoffDecision,
     });
 
     await createAgentDecision({
@@ -784,6 +808,151 @@ async function resolveHandoffDecisionTarget({
     reason: `Handoff target ${decision.target_agent} could not be resolved; current agent continues.`,
     confidence: 0.2,
   };
+}
+
+async function tryAssignRoutedWorkItemOwnership({
+  supabase,
+  organizationId,
+  workItem,
+  activeAgent,
+  agentIdentity,
+  reason,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  workItem: WorkItemReference | null;
+  activeAgent: string;
+  agentIdentity: ResolvedAgentIdentity | null;
+  reason: string;
+}) {
+  if (!workItem) {
+    return;
+  }
+
+  if (
+    !isWorkItemOwnerEmpty({
+      owner_type: normalizeWorkItemOwnerType(workItem.owner_type),
+      owner_agent_id: workItem.owner_agent_id ?? null,
+      owner_user_id: workItem.owner_user_id ?? null,
+    })
+  ) {
+    return;
+  }
+
+  try {
+    await updateWorkItemOwnership({
+      supabase,
+      workItemId: workItem.id,
+      organizationId,
+      ownerType: "ai",
+      ownerAgentId: agentIdentity?.agentId ?? null,
+      ownerAgentName:
+        agentIdentity?.profile.name ?? activeAgent,
+      ownerAgentRole: agentIdentity?.profile.role ?? null,
+      reason,
+      sourceAgent: null,
+      targetAgent: {
+        id: agentIdentity?.agentId ?? null,
+        name: agentIdentity?.profile.name ?? activeAgent,
+        role: agentIdentity?.profile.role ?? null,
+      },
+    });
+  } catch (error) {
+    console.error("WORK ITEM OWNERSHIP ASSIGNMENT FAILED", {
+      organizationId,
+      workItemId: workItem.id,
+      activeAgent,
+      error,
+    });
+  }
+}
+
+function normalizeWorkItemOwnerType(
+  ownerType: string | null | undefined
+): WorkItemOwnerType {
+  if (
+    ownerType === "ai" ||
+    ownerType === "human" ||
+    ownerType === "shared" ||
+    ownerType === "unassigned"
+  ) {
+    return ownerType;
+  }
+
+  return "unassigned";
+}
+
+async function tryUpdateHandoffOwnership({
+  supabase,
+  organizationId,
+  workItem,
+  sourceAgent,
+  handoffDecision,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  workItem: WorkItemReference | null;
+  sourceAgent: string;
+  handoffDecision: HandoffDecision;
+}) {
+  if (!workItem || !handoffDecision.should_handoff) {
+    return;
+  }
+
+  try {
+    if (handoffDecision.target_agent === "Human Review") {
+      await updateWorkItemOwnership({
+        supabase,
+        workItemId: workItem.id,
+        organizationId,
+        ownerType: "human",
+        reason: handoffDecision.reason,
+        sourceAgent,
+        targetAgent: "Human Review",
+      });
+
+      return;
+    }
+
+    if (!isAgentHandoffTarget(handoffDecision.target_agent)) {
+      return;
+    }
+
+    const targetIdentity = await resolveAgentIdentityForChat({
+      supabase,
+      organizationId,
+      activeAgent: handoffDecision.target_agent,
+    });
+
+    await updateWorkItemOwnership({
+      supabase,
+      workItemId: workItem.id,
+      organizationId,
+      ownerType: "ai",
+      ownerAgentId: targetIdentity?.agentId ?? null,
+      ownerAgentName:
+        targetIdentity?.profile.name ??
+        handoffDecision.target_agent,
+      ownerAgentRole: targetIdentity?.profile.role ?? null,
+      reason: handoffDecision.reason,
+      sourceAgent,
+      targetAgent: {
+        id: targetIdentity?.agentId ?? null,
+        name:
+          targetIdentity?.profile.name ??
+          handoffDecision.target_agent,
+        role: targetIdentity?.profile.role ?? null,
+      },
+    });
+  } catch (error) {
+    console.error("WORK ITEM HANDOFF OWNERSHIP UPDATE FAILED", {
+      organizationId,
+      workItemId: workItem.id,
+      sourceAgent,
+      targetAgent: handoffDecision.target_agent,
+      error,
+    });
+  }
 }
 
 function buildHandoffRationale({
