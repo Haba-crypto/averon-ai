@@ -120,7 +120,35 @@ function createFakeSupabase(label, options = {}) {
     decisions: [],
     aiEvents: [],
     agentExecutions: [],
-    humanReviews: [],
+    humanReviews: [
+      {
+        id: `review-phase-19-${label}`,
+        organization_id: organizationId,
+        work_item_id: workItemId,
+        agent_execution_id: `execution-before-phase-19-${label}`,
+        agent_decision_id: null,
+        requested_by: "agent-operations",
+        reviewer_user_id: null,
+        source_agent_id: agentId,
+        source_agent_name: "Operations Agent",
+        review_type: "approval",
+        review_reason: "Approval required.",
+        review_title: "Resume Operations",
+        review_summary: "Human reviewed the next execution step.",
+        review_context: {},
+        recommended_action: "Resume operations workflow.",
+        status: "approved",
+        priority: "high",
+        decision: "approve",
+        requested_at: now,
+        reviewed_at: now,
+        reviewed_by: "user-phase-19",
+        review_outcome: "Approved",
+        review_notes: "Approved; continue.",
+        created_at: now,
+        updated_at: now,
+      },
+    ],
     memoryEntries: [
       {
         id: `memory-phase-19-${label}`,
@@ -432,7 +460,7 @@ assert(
 );
 assert(
   processedDecision.decision.outcome.capability_id ===
-    "mark_execution_ready",
+    "summarize_review_decision",
   "processed decision should store capability result"
 );
 assert(
@@ -445,7 +473,7 @@ assert(
 );
 assert(
   processedTimelineItem?.message ===
-    "Operations Agent executed mark_execution_ready.",
+    "Operations Agent executed summarize_review_decision.",
   "timeline should include processed event"
 );
 
