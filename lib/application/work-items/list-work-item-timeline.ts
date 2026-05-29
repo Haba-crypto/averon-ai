@@ -677,6 +677,9 @@ function normalizeQueueExecutionProcessedDecision(
         getReviewString(outcome, "work_item_id"),
       assigned_agent_name: assignedAgentName,
       next_action: nextAction,
+      runtime_context_summary:
+        getRecord(row.metadata, "runtime_context_summary") ??
+        getRecord(outcome, "runtime_context_summary"),
       result:
         getReviewString(row.metadata, "result") ??
         getReviewString(outcome, "result"),
@@ -1279,6 +1282,14 @@ function getFeedbackOwner(
   value: Record<string, unknown> | null,
   key: string
 ) {
+  const rawValue = value?.[key];
+
+  return rawValue && typeof rawValue === "object"
+    ? (rawValue as Record<string, unknown>)
+    : null;
+}
+
+function getRecord(value: Record<string, unknown> | null, key: string) {
   const rawValue = value?.[key];
 
   return rawValue && typeof rawValue === "object"

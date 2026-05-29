@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  AGENT_RUNTIME_CONTEXT_VERSION,
+  buildAgentRuntimeContext,
+  summarizeAgentRuntimeContext,
+  type AgentRuntimeContext,
+} from "@/lib/application/agents/build-agent-runtime-context";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 
 type ProcessNextExecutionQueueItemInput = {
@@ -10,12 +16,14 @@ type ProcessNextExecutionQueueItemInput = {
 
 type WorkItemRow = {
   id: string;
+  type?: string | null;
   status: string;
   owner_type: string | null;
   owner_agent_id: string | null;
   owner_agent_name: string | null;
   owner_agent_role: string | null;
   ownership_status: string | null;
+  last_owner_change_reason?: string | null;
 };
 
 type AgentRow = {
@@ -24,14 +32,6 @@ type AgentRow = {
   name: string;
   description: string | null;
   config: Record<string, unknown> | null;
-};
-
-type MemoryEntryRow = {
-  id: string;
-  scope: string | null;
-  key: string | null;
-  content: string;
-  created_at: string;
 };
 
 type AgentExecutionRow = {
@@ -88,7 +88,7 @@ export async function processNextExecutionQueueItem({
       queueItemId,
     });
 
-    const [workItem, assignedAgent, memoryContext] =
+    const [workItem, assignedAgent] =
       await Promise.all([
         loadWorkItem({
           supabase,
@@ -101,11 +101,6 @@ export async function processNextExecutionQueueItem({
           agentId: claimedQueueItem.assigned_agent_id,
           agentName: claimedQueueItem.assigned_agent_name,
         }),
-        loadMemoryContext({
-          supabase,
-          organizationId,
-          workItemId: claimedQueueItem.work_item_id,
-        }),
       ]);
 
     const agentName =
@@ -117,6 +112,15 @@ export async function processNextExecutionQueueItem({
       claimedQueueItem.next_action ??
       "Record controlled queue processing and wait for the next manual action.";
     const processedAt = new Date().toISOString();
+    const runtimeContext = await buildAgentRuntimeContext({
+      supabase,
+      organizationId,
+      queueItemId: claimedQueueItem.id,
+      workItemId: claimedQueueItem.work_item_id,
+      assignedAgentName: agentName,
+    });
+    const runtimeContextSummary =
+      summarizeAgentRuntimeContext(runtimeContext);
 
     const agentExecution = await createAgentExecution({
       supabase,
@@ -126,7 +130,8 @@ export async function processNextExecutionQueueItem({
       assignedAgent,
       agentName,
       agentRole,
-      memoryContext,
+      runtimeContext,
+      runtimeContextSummary,
       nextAction,
       processedAt,
     });
@@ -140,6 +145,7 @@ export async function processNextExecutionQueueItem({
       agentExecutionId,
       agentName,
       nextAction,
+      runtimeContextSummary,
       processedAt,
     });
 
@@ -300,12 +306,14 @@ async function loadWorkItem({
     .select(
       [
         "id",
+        "type",
         "status",
         "owner_type",
         "owner_agent_id",
         "owner_agent_name",
         "owner_agent_role",
         "ownership_status",
+        "last_owner_change_reason",
       ].join(", ")
     )
     .eq("id", workItemId)
@@ -369,30 +377,6 @@ async function loadAssignedAgent({
   return data;
 }
 
-async function loadMemoryContext({
-  supabase,
-  organizationId,
-  workItemId,
-}: {
-  supabase: SupabaseClient;
-  organizationId: string;
-  workItemId: string;
-}) {
-  const { data, error } = await supabase
-    .from("memory_entries")
-    .select("id, scope, key, content, created_at")
-    .eq("organization_id", organizationId)
-    .eq("work_item_id", workItemId)
-    .order("created_at", { ascending: false })
-    .limit(5);
-
-  if (error) {
-    throw error;
-  }
-
-  return (data ?? []) as MemoryEntryRow[];
-}
-
 async function createAgentExecution({
   supabase,
   organizationId,
@@ -401,7 +385,8 @@ async function createAgentExecution({
   assignedAgent,
   agentName,
   agentRole,
-  memoryContext,
+  runtimeContext,
+  runtimeContextSummary,
   nextAction,
   processedAt,
 }: {
@@ -412,7 +397,8 @@ async function createAgentExecution({
   assignedAgent: AgentRow | null;
   agentName: string;
   agentRole: string | null;
-  memoryContext: MemoryEntryRow[];
+  runtimeContext: AgentRuntimeContext;
+  runtimeContextSummary: ReturnType<typeof summarizeAgentRuntimeContext>;
   nextAction: string;
   processedAt: string;
 }) {
@@ -432,17 +418,20 @@ async function createAgentExecution({
         review_id: queueItem.review_id,
         source_decision_id: queueItem.source_decision_id,
         next_action: nextAction,
-        memory_context_count: memoryContext.length,
+        runtime_context_version: AGENT_RUNTIME_CONTEXT_VERSION,
+        runtime_context: runtimeContext,
+        runtime_context_summary: runtimeContextSummary,
       },
       metadata: {
         source: "queue_orchestrator",
-        phase: 19,
+        phase: 20,
         queue_item_id: queueItem.id,
         work_item_id: queueItem.work_item_id,
         assigned_agent_name: agentName,
         agent_identity: buildAgentIdentityMetadata(assignedAgent, agentName),
         previous_work_item_status: workItem.status,
         previous_ownership_status: workItem.ownership_status,
+        runtime_context_version: AGENT_RUNTIME_CONTEXT_VERSION,
         openai_called: false,
       },
       started_at: processedAt,
@@ -467,6 +456,7 @@ async function createProcessedDecision({
   agentExecutionId,
   agentName,
   nextAction,
+  runtimeContextSummary,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -476,6 +466,7 @@ async function createProcessedDecision({
   agentExecutionId: string;
   agentName: string;
   nextAction: string;
+  runtimeContextSummary: ReturnType<typeof summarizeAgentRuntimeContext>;
   processedAt: string;
 }) {
   const decision = {
@@ -483,6 +474,7 @@ async function createProcessedDecision({
     work_item_id: queueItem.work_item_id,
     assigned_agent_name: agentName,
     next_action: nextAction,
+    runtime_context_summary: runtimeContextSummary,
     result: "processed",
     processed_at: processedAt,
   };
@@ -502,9 +494,10 @@ async function createProcessedDecision({
       confidence: 1,
       metadata: {
         source: "queue_orchestrator",
-        phase: 19,
+        phase: 20,
         ...decision,
         agent_identity: buildAgentIdentityMetadata(assignedAgent, agentName),
+        runtime_context_version: AGENT_RUNTIME_CONTEXT_VERSION,
         openai_called: false,
       },
       created_at: processedAt,

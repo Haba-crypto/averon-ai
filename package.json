@@ -13,6 +13,7 @@
     "verify:human-feedback": "node scripts/verify-human-decision-feedback.mjs",
     "verify:execution-resume": "node scripts/verify-execution-resume.mjs",
     "verify:execution-queue": "node scripts/verify-execution-queue.mjs",
+    "verify:agent-runtime-context": "node scripts/verify-agent-runtime-context.mjs",
     "verify:queue-orchestrator": "node scripts/verify-queue-orchestrator.mjs",
     "verify:queue-orchestrator:live": "node scripts/verify-queue-orchestrator-live.mjs",
     "start": "next start",
