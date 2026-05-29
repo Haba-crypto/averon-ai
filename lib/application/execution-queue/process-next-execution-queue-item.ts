@@ -37,6 +37,7 @@ import {
   type PolicyGovernanceDecision,
 } from "@/lib/application/agents/policy-governance";
 import {
+  DeterministicMockReasoningProvider,
   evaluateReasoningProposal,
   generateReasoningProposalWithMetadata,
   buildPersistedReasoningProposal,
@@ -46,6 +47,11 @@ import {
   type ReasoningProposalGovernanceResult,
   type PersistedReasoningProposal,
 } from "@/lib/application/agents/reasoning-proposal";
+import {
+  evaluateReasoningProposalQuality,
+  persistReasoningEvaluationDecision,
+  type ReasoningProposalQualityEvaluation,
+} from "@/lib/application/agents/reasoning-evaluation";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 import {
   compareQueueItemsByPriority,
@@ -187,6 +193,8 @@ type ReasoningStageOutput = {
   persistedReasoningProposal: PersistedReasoningProposal;
   reasoningProposalGovernance: ReasoningProposalGovernanceResult;
   reasoningProposalDecision: AgentDecisionRow;
+  reasoningEvaluation: ReasoningProposalQualityEvaluation;
+  reasoningEvaluationDecision: AgentDecisionRow;
 };
 
 const EXECUTION_QUEUE_SELECT_COLUMNS = [
@@ -477,6 +485,9 @@ export async function processNextExecutionQueueItem({
         reasoning.output.reasoningProposalGovernance,
       reasoningProposalDecisionId:
         reasoning.output.reasoningProposalDecision.id,
+      reasoningEvaluation: reasoning.output.reasoningEvaluation,
+      reasoningEvaluationDecisionId:
+        reasoning.output.reasoningEvaluationDecision.id,
       idempotencyKeys: collectIdempotencyKeys([
         claim,
         context,
@@ -532,6 +543,9 @@ export async function processNextExecutionQueueItem({
         reasoning.output.reasoningProposalGovernance,
       reasoning_proposal_decision_id:
         reasoning.output.reasoningProposalDecision.id,
+      reasoning_evaluation: reasoning.output.reasoningEvaluation,
+      reasoning_evaluation_decision_id:
+        reasoning.output.reasoningEvaluationDecision.id,
       outcome_feedback: outcome.output.outcomeFeedback,
       idempotency_keys: collectIdempotencyKeys([
         claim,
@@ -1082,13 +1096,20 @@ export async function generateReasoningProposalStage({
 
   try {
     const priorityResult = extractPriorityDecision(completedQueueItem);
-    const reasoningResult = await generateReasoningProposalWithMetadata({
+    const reasoningInput = {
       runtimeContext: context.runtimeContext,
       governanceResult: governance.policyGovernance,
       priorityResult,
       outcomeEvaluation: outcome.outcomeEvaluation,
       executionPlan: planning.executionPlan,
+    };
+    const deterministicResult = await generateReasoningProposalWithMetadata({
+      ...reasoningInput,
+      provider: new DeterministicMockReasoningProvider(),
     });
+    const reasoningResult = await generateReasoningProposalWithMetadata(
+      reasoningInput
+    );
     const reasoningProposalGovernance = evaluateReasoningProposal({
       proposal: reasoningResult.proposal,
       governanceResult: governance.policyGovernance,
@@ -1107,6 +1128,25 @@ export async function generateReasoningProposalStage({
       proposalGovernance: reasoningProposalGovernance,
       processedAt: context.processedAt,
     });
+    const reasoningEvaluation = evaluateReasoningProposalQuality({
+      runtimeContext: context.runtimeContext,
+      deterministicProposal: deterministicResult.proposal,
+      llmProposal:
+        reasoningResult.provider === "openai" ? reasoningResult.proposal : null,
+      governanceResult: governance.policyGovernance,
+      outcomeEvaluation: outcome.outcomeEvaluation,
+    });
+    const reasoningEvaluationDecision =
+      await persistReasoningEvaluationDecision({
+        supabase,
+        organizationId,
+        agentExecutionId: context.agentExecution.id,
+        agentId:
+          context.assignedAgent?.id ?? context.queueItem.assigned_agent_id,
+        workItemId: context.queueItem.work_item_id,
+        evaluation: reasoningEvaluation,
+        processedAt: context.processedAt,
+      });
 
     return stageOk(stage, idempotencyKey, {
       reasoningProposal: reasoningResult.proposal,
@@ -1114,6 +1154,8 @@ export async function generateReasoningProposalStage({
       persistedReasoningProposal,
       reasoningProposalGovernance,
       reasoningProposalDecision,
+      reasoningEvaluation,
+      reasoningEvaluationDecision,
     });
   } catch (error: unknown) {
     return stageFailed(stage, idempotencyKey, error, {
@@ -1795,6 +1837,8 @@ async function completeAgentExecution({
   persistedReasoningProposal,
   reasoningProposalGovernance,
   reasoningProposalDecisionId,
+  reasoningEvaluation,
+  reasoningEvaluationDecisionId,
   idempotencyKeys,
   processedAt,
 }: {
@@ -1819,6 +1863,8 @@ async function completeAgentExecution({
   persistedReasoningProposal: PersistedReasoningProposal;
   reasoningProposalGovernance: ReasoningProposalGovernanceResult;
   reasoningProposalDecisionId: string;
+  reasoningEvaluation: ReasoningProposalQualityEvaluation;
+  reasoningEvaluationDecisionId: string;
   idempotencyKeys: Record<string, string>;
   processedAt: string;
 }) {
@@ -1853,6 +1899,8 @@ async function completeAgentExecution({
         reasoning_proposal: persistedReasoningProposal,
         reasoning_proposal_governance: reasoningProposalGovernance,
         reasoning_proposal_decision_id: reasoningProposalDecisionId,
+        reasoning_evaluation: reasoningEvaluation,
+        reasoning_evaluation_decision_id: reasoningEvaluationDecisionId,
         idempotency_keys: idempotencyKeys,
       },
       completed_at: processedAt,

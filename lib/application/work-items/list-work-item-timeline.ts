@@ -615,6 +615,10 @@ function normalizeAgentDecision(
     return normalizeReasoningProposalCreatedDecision(row);
   }
 
+  if (row.decision_type === "reasoning_evaluated") {
+    return normalizeReasoningEvaluatedDecision(row);
+  }
+
   if (row.decision_type === "outcome_evaluated") {
     return normalizeOutcomeEvaluatedDecision(row);
   }
@@ -747,6 +751,79 @@ function normalizeReasoningProposalCreatedDecision(
       reasoning_proposal: getRecord(row.metadata, "reasoning_proposal"),
       proposal_governance:
         getRecord(row.metadata, "proposal_governance"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeReasoningEvaluatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const verdict =
+    getReviewString(row.metadata, "verdict") ??
+    getReviewString(outcome, "verdict") ??
+    "needs_review";
+  const qualityScore =
+    getNumber(row.metadata, "quality_score") ??
+    getNumber(outcome, "quality_score") ??
+    0;
+  const riskScore =
+    getNumber(row.metadata, "risk_score") ??
+    getNumber(outcome, "risk_score") ??
+    0;
+  const rationale =
+    getReviewString(row.metadata, "rationale") ??
+    getReviewString(outcome, "rationale") ??
+    row.rationale;
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Reasoning Evaluated",
+    message:
+      verdict === "needs_review"
+        ? `Reasoning evaluated: needs review due to medium risk.`
+        : `Reasoning evaluated: ${verdict} with quality score ${qualityScore}.`,
+    status: verdict,
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      evaluation_id:
+        getReviewString(row.metadata, "evaluation_id") ??
+        getReviewString(outcome, "evaluation_id"),
+      evaluated_provider:
+        getReviewString(row.metadata, "evaluated_provider") ??
+        getReviewString(outcome, "evaluated_provider"),
+      quality_score: qualityScore,
+      safety_score:
+        getNumber(row.metadata, "safety_score") ??
+        getNumber(outcome, "safety_score"),
+      usefulness_score:
+        getNumber(row.metadata, "usefulness_score") ??
+        getNumber(outcome, "usefulness_score"),
+      specificity_score:
+        getNumber(row.metadata, "specificity_score") ??
+        getNumber(outcome, "specificity_score"),
+      policy_alignment_score:
+        getNumber(row.metadata, "policy_alignment_score") ??
+        getNumber(outcome, "policy_alignment_score"),
+      risk_score: riskScore,
+      verdict,
+      rationale,
+      comparison_to_deterministic:
+        getRecord(row.metadata, "comparison_to_deterministic") ??
+        getRecord(outcome, "comparison_to_deterministic"),
+      evaluation_signals:
+        getArray(row.metadata, "evaluation_signals") ??
+        getArray(outcome, "evaluation_signals"),
+      reasoning_evaluation: getRecord(row.metadata, "reasoning_evaluation"),
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
