@@ -16,6 +16,10 @@ import {
   type AgentExecutionPlan,
 } from "@/lib/application/agents/agent-planning";
 import {
+  translateExecutionPlanToWork,
+  type PlanTranslationResult,
+} from "@/lib/application/agents/plan-translation";
+import {
   applyCapabilitySideEffects,
   type CapabilitySideEffectsResult,
 } from "@/lib/application/agents/capability-side-effects";
@@ -166,6 +170,8 @@ export async function processNextExecutionQueueItem({
     let sideEffectsError: string | null = null;
     let workGenerationResult: WorkGenerationResult | null = null;
     let workGenerationError: string | null = null;
+    let planTranslationResult: PlanTranslationResult | null = null;
+    let planTranslationError: string | null = null;
 
     try {
       sideEffectsResult = await applyCapabilitySideEffects({
@@ -228,6 +234,38 @@ export async function processNextExecutionQueueItem({
       processedAt,
     });
 
+    try {
+      planTranslationResult = await translateExecutionPlanToWork({
+        supabase,
+        organizationId,
+        parentWorkItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        executionPlan,
+        runtimeContext,
+        processedAt,
+      });
+
+      await createExecutionPlanTranslatedDecision({
+        supabase,
+        organizationId,
+        queueItem: claimedQueueItem,
+        assignedAgent,
+        agentExecutionId,
+        executionPlan,
+        translationResult: planTranslationResult,
+        processedAt,
+      });
+    } catch (error: unknown) {
+      planTranslationError = getErrorMessage(error);
+      console.error("PLAN TRANSLATION FAILED", {
+        organizationId,
+        parentWorkItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        planId: executionPlan.plan_id,
+        error,
+      });
+    }
+
     const agentDecision = await createCapabilityDecision({
       supabase,
       organizationId,
@@ -256,6 +294,8 @@ export async function processNextExecutionQueueItem({
       sideEffectsError,
       workGenerationResult,
       workGenerationError,
+      planTranslationResult,
+      planTranslationError,
       executionPlan,
       planDecisionId: planDecision.id,
       processedAt,
@@ -294,6 +334,8 @@ export async function processNextExecutionQueueItem({
       side_effects_error: sideEffectsError,
       work_generation: workGenerationResult,
       work_generation_error: workGenerationError,
+      plan_translation: planTranslationResult,
+      plan_translation_error: planTranslationError,
       execution_plan: executionPlan,
       openai_called: false,
       processed_count: 1,
@@ -704,6 +746,75 @@ async function createAgentExecutionPlanDecision({
   return data;
 }
 
+async function createExecutionPlanTranslatedDecision({
+  supabase,
+  organizationId,
+  queueItem,
+  assignedAgent,
+  agentExecutionId,
+  executionPlan,
+  translationResult,
+  processedAt,
+}: {
+  supabase: SupabaseClient;
+  organizationId: string;
+  queueItem: ProcessedQueueItem;
+  assignedAgent: AgentRow | null;
+  agentExecutionId: string;
+  executionPlan: AgentExecutionPlan;
+  translationResult: PlanTranslationResult;
+  processedAt: string;
+}) {
+  const outcome = {
+    plan_id: executionPlan.plan_id,
+    created_task_ids: translationResult.created_tasks,
+    created_work_item_ids: translationResult.created_work_items,
+    created_queue_item_ids: translationResult.created_queue_items,
+    skipped_steps: translationResult.skipped_steps,
+    skipped_duplicates: translationResult.skipped_duplicates,
+    translated_step_count: translationResult.created_tasks.length,
+    processed_at: processedAt,
+  };
+
+  const { data, error } = await supabase
+    .from("agent_decisions")
+    .insert({
+      organization_id: organizationId,
+      agent_execution_id: agentExecutionId,
+      agent_id: assignedAgent?.id ?? queueItem.assigned_agent_id,
+      work_item_id: queueItem.work_item_id,
+      decision_type: "execution_plan_translated",
+      decision: {
+        outcome,
+      },
+      rationale: `${executionPlan.agent_name} translated ${translationResult.created_tasks.length} plan steps into internal work.`,
+      confidence: 1,
+      metadata: {
+        source: "plan_translation",
+        phase: 27,
+        queue_item_id: queueItem.id,
+        work_item_id: queueItem.work_item_id,
+        agent_name: executionPlan.agent_name,
+        capability_id: executionPlan.capability_id,
+        ...outcome,
+        agent_identity: buildAgentIdentityMetadata(
+          assignedAgent,
+          executionPlan.agent_name
+        ),
+        openai_called: false,
+      },
+      created_at: processedAt,
+    })
+    .select("id")
+    .single<AgentDecisionRow>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 async function completeAgentExecution({
   supabase,
   organizationId,
@@ -716,6 +827,8 @@ async function completeAgentExecution({
   sideEffectsError,
   workGenerationResult,
   workGenerationError,
+  planTranslationResult,
+  planTranslationError,
   executionPlan,
   planDecisionId,
   processedAt,
@@ -731,6 +844,8 @@ async function completeAgentExecution({
   sideEffectsError: string | null;
   workGenerationResult: WorkGenerationResult | null;
   workGenerationError: string | null;
+  planTranslationResult: PlanTranslationResult | null;
+  planTranslationError: string | null;
   executionPlan: AgentExecutionPlan;
   planDecisionId: string;
   processedAt: string;
@@ -757,6 +872,8 @@ async function completeAgentExecution({
         side_effects_error: sideEffectsError,
         work_generation_result: workGenerationResult,
         work_generation_error: workGenerationError,
+        plan_translation_result: planTranslationResult,
+        plan_translation_error: planTranslationError,
         execution_plan: executionPlan,
       },
       completed_at: processedAt,

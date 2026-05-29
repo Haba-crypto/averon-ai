@@ -579,6 +579,10 @@ function normalizeAgentDecision(
     return normalizeAgentExecutionPlanCreatedDecision(row);
   }
 
+  if (row.decision_type === "execution_plan_translated") {
+    return normalizeExecutionPlanTranslatedDecision(row);
+  }
+
   if (row.decision_type === "capability_side_effects_applied") {
     return normalizeCapabilitySideEffectsAppliedDecision(row);
   }
@@ -902,6 +906,68 @@ function normalizeAgentExecutionPlanCreatedDecision(
       execution_plan:
         getRecord(row.metadata, "execution_plan") ??
         getRecord(outcome, "execution_plan"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeExecutionPlanTranslatedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const agentName =
+    getReviewString(row.metadata, "agent_name") ??
+    getReviewString(outcome, "agent_name") ??
+    "Agent";
+  const createdTaskIds =
+    getStringArray(row.metadata, "created_task_ids") ??
+    getStringArray(outcome, "created_task_ids") ??
+    [];
+  const createdWorkItemIds =
+    getStringArray(row.metadata, "created_work_item_ids") ??
+    getStringArray(outcome, "created_work_item_ids") ??
+    [];
+  const createdQueueItemIds =
+    getStringArray(row.metadata, "created_queue_item_ids") ??
+    getStringArray(outcome, "created_queue_item_ids") ??
+    [];
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Execution Plan Translated",
+    message: `${agentName} translated ${createdTaskIds.length} plan steps into internal work.`,
+    status: "execution_plan_translated",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      plan_id:
+        getReviewString(row.metadata, "plan_id") ??
+        getReviewString(outcome, "plan_id"),
+      agent_name: agentName,
+      capability_id:
+        getReviewString(row.metadata, "capability_id") ??
+        getReviewString(outcome, "capability_id"),
+      created_task_ids: createdTaskIds,
+      created_work_item_ids: createdWorkItemIds,
+      created_queue_item_ids: createdQueueItemIds,
+      skipped_steps:
+        getArray(row.metadata, "skipped_steps") ??
+        getArray(outcome, "skipped_steps") ??
+        [],
+      skipped_duplicates:
+        getArray(row.metadata, "skipped_duplicates") ??
+        getArray(outcome, "skipped_duplicates") ??
+        [],
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
