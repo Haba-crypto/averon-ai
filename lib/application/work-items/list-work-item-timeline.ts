@@ -573,6 +573,10 @@ function normalizeAgentDecision(
     return normalizeCapabilityExecutedDecision(row);
   }
 
+  if (row.decision_type === "capability_side_effects_applied") {
+    return normalizeCapabilitySideEffectsAppliedDecision(row);
+  }
+
   return {
     id: `agent_decisions:${row.id}`,
     type: "agent_decision",
@@ -742,6 +746,77 @@ function normalizeCapabilityExecutedDecision(
       runtime_context_summary:
         getRecord(row.metadata, "runtime_context_summary") ??
         getRecord(outcome, "runtime_context_summary"),
+      agent_identity: getAgentIdentityMetadata(row.metadata),
+    },
+  };
+}
+
+function normalizeCapabilitySideEffectsAppliedDecision(
+  row: AgentDecisionRow
+): WorkItemTimelineItem {
+  const outcome = getDecisionOutcome(row.decision);
+  const assignedAgentName =
+    getReviewString(row.metadata, "assigned_agent_name") ??
+    getReviewString(outcome, "assigned_agent_name") ??
+    "Agent";
+  const capabilityId =
+    getReviewString(row.metadata, "capability_id") ??
+    getReviewString(outcome, "capability_id") ??
+    "unknown_capability";
+  const createdTaskIds =
+    getStringArray(row.metadata, "created_task_ids") ??
+    getStringArray(outcome, "created_task_ids") ??
+    [];
+  const skippedDuplicates =
+    getArray(row.metadata, "skipped_duplicates") ??
+    getArray(outcome, "skipped_duplicates") ??
+    [];
+
+  return {
+    id: `agent_decisions:${row.id}`,
+    type: "agent_decision",
+    source: "agent_decisions",
+    title: "Capability Side Effects Applied",
+    message: buildCapabilitySideEffectsMessage({
+      assignedAgentName,
+      capabilityId,
+      createdTaskCount: createdTaskIds.length,
+      skippedDuplicateCount: skippedDuplicates.length,
+    }),
+    status: "capability_side_effects_applied",
+    agent_id: row.agent_id,
+    confidence:
+      row.confidence === null ? null : Number(row.confidence),
+    created_at: row.created_at,
+    metadata: {
+      record_id: row.id,
+      agent_execution_id: row.agent_execution_id,
+      decision_type: row.decision_type,
+      work_item_id:
+        getReviewString(row.metadata, "work_item_id") ??
+        getReviewString(outcome, "work_item_id"),
+      assigned_agent_name: assignedAgentName,
+      capability_id: capabilityId,
+      capability_name:
+        getReviewString(row.metadata, "capability_name") ??
+        getReviewString(outcome, "capability_name"),
+      created_task_ids: createdTaskIds,
+      created_work_item_ids:
+        getStringArray(row.metadata, "created_work_item_ids") ??
+        getStringArray(outcome, "created_work_item_ids") ??
+        [],
+      created_decision_ids:
+        getStringArray(row.metadata, "created_decision_ids") ??
+        getStringArray(outcome, "created_decision_ids") ??
+        [],
+      created_memory_entry_ids:
+        getStringArray(row.metadata, "created_memory_entry_ids") ??
+        getStringArray(outcome, "created_memory_entry_ids") ??
+        [],
+      updated_work_item:
+        getBoolean(row.metadata, "updated_work_item") ??
+        getBoolean(outcome, "updated_work_item"),
+      skipped_duplicates: skippedDuplicates,
       agent_identity: getAgentIdentityMetadata(row.metadata),
     },
   };
@@ -1242,6 +1317,28 @@ function buildHumanReviewDecisionTitle({
   return "Human review decision recorded";
 }
 
+function buildCapabilitySideEffectsMessage({
+  assignedAgentName,
+  capabilityId,
+  createdTaskCount,
+  skippedDuplicateCount,
+}: {
+  assignedAgentName: string;
+  capabilityId: string;
+  createdTaskCount: number;
+  skippedDuplicateCount: number;
+}) {
+  if (createdTaskCount > 0) {
+    return `${assignedAgentName} created an internal task after ${capabilityId}.`;
+  }
+
+  if (skippedDuplicateCount > 0) {
+    return `${assignedAgentName} skipped duplicate internal side effects for ${capabilityId}.`;
+  }
+
+  return `${assignedAgentName} applied internal side effects for ${capabilityId}.`;
+}
+
 function getOwnershipOwner(
   value: Record<string, unknown> | null,
   key: string
@@ -1354,6 +1451,29 @@ function getRecord(value: Record<string, unknown> | null, key: string) {
   return rawValue && typeof rawValue === "object"
     ? (rawValue as Record<string, unknown>)
     : null;
+}
+
+function getArray(value: Record<string, unknown> | null, key: string) {
+  const rawValue = value?.[key];
+
+  return Array.isArray(rawValue) ? rawValue : null;
+}
+
+function getStringArray(
+  value: Record<string, unknown> | null,
+  key: string
+) {
+  const rawValue = getArray(value, key);
+
+  return rawValue?.every((item) => typeof item === "string")
+    ? (rawValue as string[])
+    : null;
+}
+
+function getBoolean(value: Record<string, unknown> | null, key: string) {
+  const rawValue = value?.[key];
+
+  return typeof rawValue === "boolean" ? rawValue : null;
 }
 
 function getDecisionOutcome(

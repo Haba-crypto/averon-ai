@@ -11,6 +11,10 @@ import {
   selectAgentCapability,
   type AgentCapabilityExecutionResult,
 } from "@/lib/application/agents/agent-capabilities";
+import {
+  applyCapabilitySideEffects,
+  type CapabilitySideEffectsResult,
+} from "@/lib/application/agents/capability-side-effects";
 import type { ExecutionQueueItem } from "@/lib/application/execution-queue/create-execution-queue-item";
 
 type ProcessNextExecutionQueueItemInput = {
@@ -149,6 +153,31 @@ export async function processNextExecutionQueueItem({
       runtimeContext,
       capability: selectedCapability,
     });
+    let sideEffectsResult: CapabilitySideEffectsResult | null = null;
+    let sideEffectsError: string | null = null;
+
+    try {
+      sideEffectsResult = await applyCapabilitySideEffects({
+        supabase,
+        organizationId,
+        workItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        capabilityResult: capabilityExecution,
+        runtimeContext,
+        agentId: assignedAgent?.id ?? claimedQueueItem.assigned_agent_id,
+        agentName,
+        processedAt,
+      });
+    } catch (error: unknown) {
+      sideEffectsError = getErrorMessage(error);
+      console.error("CAPABILITY SIDE EFFECTS FAILED", {
+        organizationId,
+        workItemId: claimedQueueItem.work_item_id,
+        agentExecutionId,
+        capabilityId: capabilityExecution.capability_id,
+        error,
+      });
+    }
 
     const agentDecision = await createCapabilityDecision({
       supabase,
@@ -158,6 +187,8 @@ export async function processNextExecutionQueueItem({
       agentExecutionId,
       agentName,
       capabilityExecution,
+      sideEffectsResult,
+      sideEffectsError,
       runtimeContextSummary,
       processedAt,
     });
@@ -170,6 +201,8 @@ export async function processNextExecutionQueueItem({
       decisionId: agentDecision.id,
       agentName,
       capabilityExecution,
+      sideEffectsResult,
+      sideEffectsError,
       processedAt,
     });
 
@@ -202,6 +235,8 @@ export async function processNextExecutionQueueItem({
         capability_name: capabilityExecution.capability_name,
       },
       next_action: capabilityExecution.recommended_next_action,
+      side_effects: sideEffectsResult,
+      side_effects_error: sideEffectsError,
       openai_called: false,
       processed_count: 1,
     };
@@ -473,6 +508,8 @@ async function createCapabilityDecision({
   agentExecutionId,
   agentName,
   capabilityExecution,
+  sideEffectsResult,
+  sideEffectsError,
   runtimeContextSummary,
   processedAt,
 }: {
@@ -483,6 +520,8 @@ async function createCapabilityDecision({
   agentExecutionId: string;
   agentName: string;
   capabilityExecution: AgentCapabilityExecutionResult;
+  sideEffectsResult: CapabilitySideEffectsResult | null;
+  sideEffectsError: string | null;
   runtimeContextSummary: ReturnType<typeof summarizeAgentRuntimeContext>;
   processedAt: string;
 }) {
@@ -497,6 +536,8 @@ async function createCapabilityDecision({
       capabilityExecution.recommended_next_action,
     created_tasks: capabilityExecution.created_tasks ?? [],
     created_decisions: capabilityExecution.created_decisions ?? [],
+    side_effects_result: sideEffectsResult,
+    side_effects_error: sideEffectsError,
     runtime_context_summary: runtimeContextSummary,
     processed_at: processedAt,
   };
@@ -542,6 +583,8 @@ async function completeAgentExecution({
   decisionId,
   agentName,
   capabilityExecution,
+  sideEffectsResult,
+  sideEffectsError,
   processedAt,
 }: {
   supabase: SupabaseClient;
@@ -551,6 +594,8 @@ async function completeAgentExecution({
   decisionId: string;
   agentName: string;
   capabilityExecution: AgentCapabilityExecutionResult;
+  sideEffectsResult: CapabilitySideEffectsResult | null;
+  sideEffectsError: string | null;
   processedAt: string;
 }) {
   const { error } = await supabase
@@ -570,6 +615,8 @@ async function completeAgentExecution({
           capabilityExecution.recommended_next_action,
         created_tasks: capabilityExecution.created_tasks ?? [],
         created_decisions: capabilityExecution.created_decisions ?? [],
+        side_effects_result: sideEffectsResult,
+        side_effects_error: sideEffectsError,
       },
       completed_at: processedAt,
       updated_at: processedAt,
